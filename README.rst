@@ -8,6 +8,7 @@ Untapped depends heavily on the `Lasagne <http://github.com/Lasagne/Lasagne>`_ a
 `Theano <http://deeplearning.net/software/theano>`_ libraries.
 Please make sure you have these installed before installing Untapped.
 Untapped also depends heavily on a modifed version of `Parmesan <https://github.com/casperkaae/parmesan>`_.
+We recommend installing untapped in a virtual environment (i.e., `download Anaconda <https://www.continuum.io/downloads>`_).
 
 **Install Untapped**
 
@@ -32,9 +33,7 @@ Documentation
 -------------
 At the moment untapped primarily includes
 
-* A semi^2-supervised deep generative model (^2 for unlabeled x and unlabeled y) equipped with training
-procedures for both variational inference and vanilla reconstruction error. Models M1, M2, and M12 from
-Kingma et. al are implemented.
+* A semi^2-supervised deep generative model (^2 for unlabeled x and unlabeled y) equipped with training procedures for both variational inference and vanilla reconstruction error. Models M1, M2, and M12 from Kingma et. al are implemented.
 
 Please see the source code and code examples for further details.
 
