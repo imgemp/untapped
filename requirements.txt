@@ -1,0 +1,7 @@
+matplotlib>=2.0.0
+ipython>=5.3.0
+numpy>=1.6.1
+scipy>=0.19.0
+scikit-learn>=0.18.1
+git+https://github.com/Theano/Theano.git
+git+https://github.com/Lasagne/Lasagne.git
