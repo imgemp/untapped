@@ -68,6 +68,8 @@ class TestS2SDGM(unittest.TestCase):
         prior_z2 = lambda z2: log_normal2(z2,mean=0.,log_var=0.).sum(axis=3)
 
         res_out = 'untapped/tests/results'
+        if not os.path.exists(res_out):
+            os.makedirs(res_out)
         testlog = os.path.join(res_out, 'testlog.log')
 
         with open(testlog, 'w') as testfile:

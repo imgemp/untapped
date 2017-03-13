@@ -3,8 +3,8 @@ examples/datasets/crism/
 examples/datasets/libs/
 examples/datasets/mnist/
 examples/datasets/raman/
-examples/results/*
-untapped/tests/results/*
+examples/results/
+untapped/tests/results/
 
 *__pycache__/
 .cache/
