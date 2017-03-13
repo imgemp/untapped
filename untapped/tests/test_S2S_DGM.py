@@ -70,7 +70,7 @@ class TestS2SDGM(unittest.TestCase):
         res_out = 'untapped/tests/results'
         testlog = os.path.join(res_out, 'testlog.log')
 
-        with open(testlog, 'a') as testfile:
+        with open(testlog, 'w') as testfile:
 
             for model_type in [0,1,2]:
                 print('model_type',model_type)
