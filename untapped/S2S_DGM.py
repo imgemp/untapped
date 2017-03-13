@@ -1,5 +1,5 @@
 """
-Semi-Supervised Deep Generative Model
+Semi^2-Supervised Deep Generative Model
 
 Kingma, Diederik P., et al. "Semi-supervised learning with deep generative models." 2014.
 Kingma, Diederik P., and Max Welling. "Auto-encoding variational bayes." 2013.
@@ -8,9 +8,9 @@ Burda, Yuri, Roger Grosse, and Ruslan Salakhutdinov. "Importance weighted autoen
 Extension of https://github.com/casperkaae/parmesan
 
 SSDGM is a class to build and train a generative model using deep nets.
-The model construction consists of recognition models, p(y,z|x;phi), that
+The model construction consists of recognition networks, p(y,z|x;phi), that
 can be used to infer latent variables (Z) and possibly response
-variables (Y) as well as generative models, p(x|y,z;theta), that can be used
+variables (Y) as well as generative networks, p(x|y,z;theta), that can be used
 to approximate the true data distribution.  The model is flexible enough
 to be trained with a variational upper bound or as a deep autoencoder in the
 limiting case of zero variance for the posteriors and uniform prior.  The

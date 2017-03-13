@@ -7,11 +7,6 @@ from itertools import product
 from sklearn.cross_decomposition import PLSRegression
 
 import numpy as np
-# explain problem, get noisy data from spectra instruments, mars blah blah blah
-# want to predict composition, extract endmembers / unmixing
-# explain model: aes, vaes, nuisance, flows, etc.
-# mario results: nuisance, composition, endmembers, distributions (potential multimodal result)
-# mars results: SiO2 extraction, composition, other endmembers need work
 
 
 def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux=0,
