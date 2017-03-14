@@ -20,10 +20,6 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     y_valid = np.hstack([data['y_valid'],1-data['y_valid'].sum(axis=1,keepdims=True)])
     y_corners = np.vstack((np.eye(data['y'].shape[1]),np.zeros(data['y'].shape[1]))).astype('float32')
 
-    converter = lambda x: x.decode('UTF-8')
-    converters = {0:converter,1:converter,2:converter}
-    true_samples = np.loadtxt('datasets/triangle/calculatedWeights.csv',delimiter=',',converters=converters)
-
     simplex = []
     for point in product(*([np.linspace(0,1,50)]*y.shape[1])):
         if np.sum(point) == 1:
@@ -69,15 +65,6 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     pred_valid = m.predict(x=data['X_valid'],deterministic=True)
     pred_valid = np.hstack([pred_valid,1-pred_valid.sum(axis=1,keepdims=True)])
     score_pred_valid = KL(pred_valid,y_valid)
-
-    KLstats = []
-    KLstats += [minmaxKL(pred_train_pls,y,true_samples)]
-    KLstats += [minmaxKL(pred_valid_pls,y_valid,true_samples)]
-    KLstats += [minmaxKL(pred_train,y,true_samples)]
-    KLstats += [minmaxKL(pred_valid,y_valid,true_samples)]
-    KLstats = np.asarray(KLstats)
-    np.save(res_out+'/KLstats.npy',KLstats)
-    print(KLstats)
 
     if m.model_type in [1,2]:
         z2_train = m.getZ2(x=data['X'],y=data['y'],deterministic=True)
@@ -296,13 +283,6 @@ def KL(pred,true):
     _pred = np.clip(pred,eps,1.)
     KL = np.sum(_true*(np.log(_true)-np.log(_pred)),axis=-1).mean()
     return KL
-
-def minmaxKL(pred,true,true_samples):
-    KLs = []
-    for _pred,_true in zip(pred,true):
-        if np.allclose(_true,[0.3,0.3,0.4]):
-            KLs += [KL(_pred,_true_sample) for _true_sample in true_samples]
-    return [np.min(KLs), np.max(KLs), np.mean(KLs)]
 
 
 def L2(pred,true):

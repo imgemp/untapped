@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cmx
 import matplotlib.colors as colors
 
+from untapped.utilities import load_url
+
 
 def get_cmap(N):
     '''Returns a function that maps each index in 0, 1, ... N-1 to a distinct 
@@ -25,7 +27,7 @@ def get_cmap(N):
     return map_index_to_rgb_color
 
 
-def load_data(dataset='examples/mnist/mnist.pkl.gz',remove_mean=False,cat=True,binary=True,
+def load_data(dataset='examples/datasets/mnist/mnist.pkl.gz',remove_mean=False,cat=True,binary=True,
               close_corners=True,fuzzy_corners=False,half_corners=False):
     ''' Loads the dataset
 
@@ -33,37 +35,35 @@ def load_data(dataset='examples/mnist/mnist.pkl.gz',remove_mean=False,cat=True,b
     :param dataset: the path to the dataset (here MNIST)
     '''
 
-    #############
-    # LOAD DATA #
-    #############
+    train_set, valid_set, test_set = load_url('http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz',dataset)
 
-    # Download the MNIST dataset if it is not present
-    data_dir, data_file = os.path.split(dataset)
-    if data_dir == "" and not os.path.isfile(dataset):
-        # Check if dataset is in the data directory.
-        new_path = os.path.join(
-            os.path.split(__file__)[0],
-            dataset
-        )
-        if os.path.isfile(new_path) or data_file == 'mnist.pkl.gz':
-            dataset = new_path
+    # # Download the MNIST dataset if it is not present
+    # data_dir, data_file = os.path.split(dataset)
+    # if data_dir == "" and not os.path.isfile(dataset):
+    #     # Check if dataset is in the data directory.
+    #     new_path = os.path.join(
+    #         os.path.split(__file__)[0],
+    #         dataset
+    #     )
+    #     if os.path.isfile(new_path) or data_file == 'mnist.pkl.gz':
+    #         dataset = new_path
 
-    if (not os.path.isfile(dataset)) and data_file == 'mnist.pkl.gz':
-        from six.moves import urllib
-        origin = (
-            'http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz'
-        )
-        print('Downloading data from %s' % origin)
-        urllib.request.urlretrieve(origin, dataset)
+    # if (not os.path.isfile(dataset)) and data_file == 'mnist.pkl.gz':
+    #     from six.moves import urllib
+    #     origin = (
+    #         'http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz'
+    #     )
+    #     print('Downloading data from %s' % origin)
+    #     urllib.request.urlretrieve(origin, dataset)
 
-    print('... loading data')
+    # print('... loading data')
 
-    # Load the dataset
-    with gzip.open(dataset, 'rb') as f:
-        try:
-            train_set, valid_set, test_set = pickle.load(f, encoding='latin1')
-        except:
-            train_set, valid_set, test_set = pickle.load(f)
+    # # Load the dataset
+    # with gzip.open(dataset, 'rb') as f:
+    #     try:
+    #         train_set, valid_set, test_set = pickle.load(f, encoding='latin1')
+    #     except:
+    #         train_set, valid_set, test_set = pickle.load(f)
     # train_set, valid_set, test_set format: tuple(input, target)
     # input is a numpy.ndarray of 2 dimensions (a matrix)
     # where each row corresponds to an example. target is a

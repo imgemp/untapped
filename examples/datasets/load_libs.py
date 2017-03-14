@@ -6,6 +6,8 @@ from sklearn.model_selection import StratifiedKFold
 
 from matplotlib.pyplot import cm
 
+from untapped.utilities import load_url
+
 # Mask for LIBS channels
 ALAMOS_MASK = np.zeros(6144, dtype=bool)
 ALAMOS_MASK[110:1994] = True
@@ -13,13 +15,18 @@ ALAMOS_MASK[2169:4096] = True
 ALAMOS_MASK[4182:5856] = True
 
 
-def load_process_data(big=True,trial=0,hardCV=True,cv_param=3,remove_mean=True,log_x=False,eps=1e-7):
+def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,trial=0,hardCV=True,cv_param=3,remove_mean=True,log_x=False,eps=0.):
+
+    small_means, big_means, cal_data = load_url('https://people.cs.umass.edu/~imgemp/datasets/libs.pkl.gz',dataset)
 
     # unlabeled dataset
-    unsup_x = load_mars_means(big=big).clip(eps,np.inf)
+    if big and big_means is not None:
+        unsup_x = big_means.clip(eps,np.inf)
+    else:
+        unsup_x = small_means.clip(eps,np.inf)
 
     # labeled dataset
-    sup_data, meta, split = load_cal_targets(majors_only=True,big=big,
+    sup_data, meta, split = load_cal_targets(cal_data,majors_only=True,big=big,
                                              trial=trial,hardCV=hardCV,
                                              cv_param=cv_param)
     sup_x, sup_y = sup_data
@@ -124,18 +131,13 @@ def load_mars_means(big=True):
         return np.load('examples/datasets/libs/small_means.npy')
 
 
-def load_cal_targets(majors_only=True,big=True,trial=0,hardCV=True,cv_param=3):
-    data = np.load('examples/datasets/libs/public_caltargets.npz')
-
-    x = data['data']
+def load_cal_targets(data,majors_only=True,big=True,trial=0,hardCV=True,cv_param=3):
+    x, y, majors, waves, types = data
     if majors_only:
-        y = data['target'][:,:-5]
-        majors = data['target_names'][:-5]
-    else:
-        y = data['target']
-        majors = data['target_names']
-    waves = data['data_names']
-    types = np.asarray([tup[-1] for tup in data['key']]).astype(str)
+        y = y[:,:-5]
+        majors = majors[:-5]
+
+    print('Unique Rock Types:')
     print(np.unique(types))
 
     # remove nan data
@@ -191,13 +193,6 @@ def load_cal_targets(majors_only=True,big=True,trial=0,hardCV=True,cv_param=3):
                 return (x,y),(waves,majors,types,le),split
     print('Only '+str(num)+' splits available. Returning last split.')
     return (x,y),(waves,majors,types,le),split
-
-
-def load_lanl(new=True):
-    if new:
-        return np.load('examples/datasets/libs/lanl_new.npy')
-    else:
-        raise NotImplementedError()
 
 
 def mask_norm(x,mask=True,norm=True):

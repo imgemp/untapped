@@ -10,28 +10,16 @@ from os.path import join
 
 from sklearn.decomposition import PCA
 
-
-def get_endmembers(path='examples/datasets/crism/endmembers.txt'):
-    return np.loadtxt(path)
+from untapped.utilities import load_url
 
 
-def get_data(path='examples/datasets/crism/multiAngle_measurements'):
-    names = [['ternaryMix1_position1.mat', 'mix1Samp_pos1'],
-             ['ternaryMix1_position2.mat', 'mix1Samp_pos2'],
-             ['ternaryMix1_samplesAngled.mat', 'mix1Samp_angle']]
-    suffix = '_Abun'
-    x_arr = []
-    y_arr = []
-    for group in names:
-        data = loadmat(join(path, group[0]))
-        x_arr.append(data[group[1]])
-        y_arr.append(data[group[1] + suffix])
+def get_endmembers(dataset='examples/datasets/crism/crism.pkl.gz'):
+    x, y, endmembers = load_url('https://people.cs.umass.edu/~imgemp/datasets/crism.pkl.gz',dataset)
+    return endmembers
 
-    x = x_arr[0]
-    y = y_arr[0]
-    for i in range(1, len(x_arr)):
-        x = np.append(x, x_arr[i], axis=0)
-        y = np.append(y, y_arr[i], axis=0)
+
+def get_data(dataset='examples/datasets/crism/crism.pkl.gz'):
+    x, y, _ = load_url('https://people.cs.umass.edu/~imgemp/datasets/crism.pkl.gz',dataset)
 
     names = ['olivine','diopside','bytownite']
     colors = ['r','g','b']

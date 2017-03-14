@@ -86,7 +86,7 @@ res_out='examples/results/mnist/'+timeStamp().format("")
 
 # construct the semi^2-supervised deep generative model
 m = SSDGM(num_features,num_output,model_dict=model_dict,eq_samples=1,iw_samples=1,
-          prior_x=prior_x,prior_y=prior_y,prior_z1=prior_z1,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
+          prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
           coeff_x=1e-1,coeff_y=1e-1,coeff_x_dis=1,coeff_y_dis=1e-2,coeff_x_prob=1e-1,coeff_y_prob=0,
           num_epochs=1000,eval_freq=100,lr=1e-2,
           batch_size_Xy_train=10000,batch_size_X__train=10000,batch_size__y_train=10000,

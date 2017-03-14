@@ -4,6 +4,8 @@ from sklearn.model_selection import KFold
 
 from matplotlib.pyplot import cm
 
+from untapped.utilities import load_url
+
 # NOTE: the Ishikawa paper had a mistake!
 # They put Annite in the Plagioclase group,
 # but it should really be in the Mica group.
@@ -37,10 +39,9 @@ def zero_one(x):
     return (x.T/np.ptp(x,axis=1)).T
 
 
-def get_endmembers():
-    data = np.load('examples/datasets/raman/mineral_mixtures.npz')
-    x = zero_one(data['x'])
-    y = data['y']
+def get_endmembers(dataset='examples/datasets/raman/raman.pkl.gz'):
+    x, y, waves, majors = load_url('https://people.cs.umass.edu/~imgemp/datasets/raman.pkl.gz',dataset)
+    x = zero_one(x)
     endmems = np.zeros((y.shape[1],x.shape[1]))
     for i in range(y.shape[1]):
         samples = (y[:,i] == 1.)
@@ -48,13 +49,8 @@ def get_endmembers():
     return endmems
 
 
-def load_process_data(trial=0,n_folds=2,remove_mean=False,log_x=False):
-    data = np.load('examples/datasets/raman/mineral_mixtures.npz')
-    x = zero_one(data['x'])
-    y = data['y']
-    waves = data['waves']
-    majors = data['majors']
-    le = data['le'].item()
+def load_process_data(dataset='examples/datasets/raman/raman.pkl.gz',trial=0,n_folds=2,remove_mean=False,log_x=False):
+    x, y, waves, majors = load_url('https://people.cs.umass.edu/~imgemp/datasets/raman.pkl.gz',dataset)
 
     # normalize
     # preprocessing.normalize(x,norm='l1',copy=False)
