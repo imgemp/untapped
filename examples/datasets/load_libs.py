@@ -88,25 +88,25 @@ def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,tria
 
     # trim down unsupervised samples
     Nx = Ny = 500
-    unsup_x = unsup_x[np.random.choice(unsup_x.shape[0],size=Nx,replace=False)]
-    unsup_y = unsup_y[np.random.choice(unsup_y.shape[0],size=Ny,replace=False)]
+    x_unsup = unsup_x[np.random.choice(unsup_x.shape[0],size=Nx,replace=False)]
+    y_unsup = unsup_y[np.random.choice(unsup_y.shape[0],size=Ny,replace=False)]
 
     # split supervised data into train and valid
-    sup_train_x = sup_x[train_idx]
-    sup_train_y = sup_y[train_idx]
-    train = (sup_train_x,sup_train_y)
+    x_train = sup_x[train_idx]
+    y_train = sup_y[train_idx]
 
-    sup_valid_x = sup_x[valid_idx]
-    sup_valid_y = sup_y[valid_idx]
-    valid = (sup_valid_x,sup_valid_y)
+    x_valid = sup_x[valid_idx]
+    y_valid = sup_y[valid_idx]
 
     # package meta data
     meta = waves, (types, le), elements, ux
     meta_split = (train_idx,valid_idx), (train_types, valid_types)
 
-    # xy = (x_train, y_train, x_valid, y_valid, unsup_x, unsup_y)
-    xy = train + valid + (unsup_x, unsup_y)
-    print([arr.shape for arr in xy])
+    xy = (x_train, y_train, x_valid, y_valid, x_unsup, y_unsup)
+    xy_names = ('x_train', 'y_train', 'x_valid', 'y_valid', 'x_unsup', 'y_unsup')
+    print('Data Shapes:')
+    for name, d in zip(xy_names,xy):
+        print(name,d.shape)
 
     colors = cm.rainbow(np.linspace(0,1,len(elements)))
 

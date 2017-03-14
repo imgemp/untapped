@@ -83,6 +83,10 @@ def load_process_data(dataset='examples/datasets/raman/raman.pkl.gz',trial=0,n_f
     y_unsup = y
 
     xy = (x_train, y_train, x_valid, y_valid, x_unsup, y_unsup)
+    xy_names = ('x_train', 'y_train', 'x_valid', 'y_valid', 'x_unsup', 'y_unsup')
+    print('Data Shapes:')
+    for name, d in zip(xy_names,xy):
+        print(name,d.shape)
 
     names = [major.decode('UTF-8') for major in majors]
 

@@ -166,7 +166,10 @@ def load_data(dataset='examples/datasets/mnist/mnist.pkl.gz',remove_mean=False,c
     y_valid = y[inds_hi]
 
     xy = (x_train, y_train, x_valid, y_valid, x_unsup, y_unsup)
-    print([arr.shape for arr in xy])
+    xy_names = ('x_train', 'y_train', 'x_valid', 'y_valid', 'x_unsup', 'y_unsup')
+    print('Data Shapes:')
+    for name, d in zip(xy_names,xy):
+        print(name,d.shape)
 
     names = [str(i) for i in range(num_y)]
     cmap = get_cmap(num_y)

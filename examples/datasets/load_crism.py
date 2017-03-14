@@ -99,7 +99,10 @@ def load_process_data(remove_mean=True,plot=False):
         plt.savefig('crism_simplex.png',bbox_inches='tight')
 
     xy = (x_train, y_train, x_valid, y_valid, x_unsup, y_unsup)
-    print([arr.shape for arr in xy])
+    xy_names = ('x_train', 'y_train', 'x_valid', 'y_valid', 'x_unsup', 'y_unsup')
+    print('Data Shapes:')
+    for name, d in zip(xy_names,xy):
+        print(name,d.shape)
     # file = 'examples/datasets/crism/wavelength_SWIR.mat'
     # waves = loadmat(file)
     # waves = waves['wavelength'].squeeze()
