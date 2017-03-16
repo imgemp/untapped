@@ -17,7 +17,7 @@ ALAMOS_MASK[4182:5856] = True
 
 def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,trial=0,hardCV=True,cv_param=3,remove_mean=True,log_x=False,eps=0.):
 
-    small_means, big_means, cal_data = load_url('https://people.cs.umass.edu/~imgemp/datasets/libs.pkl.gz',dataset)
+    small_means, big_means, cal_data = load_url('http://www-anw.cs.umass.edu/public_data/untapped/libs.pkl.gz',dataset)
 
     # unlabeled dataset
     if big and big_means is not None:
