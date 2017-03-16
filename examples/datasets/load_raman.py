@@ -40,7 +40,7 @@ def zero_one(x):
 
 
 def get_endmembers(dataset='examples/datasets/raman/raman.pkl.gz'):
-    x, y, waves, majors = load_url('https://people.cs.umass.edu/~imgemp/datasets/raman.pkl.gz',dataset)
+    x, y, waves, majors = load_url('http://www-anw.cs.umass.edu/public_data/untapped/raman.pkl.gz',dataset)
     x = zero_one(x)
     endmems = np.zeros((y.shape[1],x.shape[1]))
     for i in range(y.shape[1]):
@@ -50,7 +50,7 @@ def get_endmembers(dataset='examples/datasets/raman/raman.pkl.gz'):
 
 
 def load_process_data(dataset='examples/datasets/raman/raman.pkl.gz',trial=0,n_folds=2,remove_mean=False,log_x=False):
-    x, y, waves, majors = load_url('https://people.cs.umass.edu/~imgemp/datasets/raman.pkl.gz',dataset)
+    x, y, waves, majors = load_url('http://www-anw.cs.umass.edu/public_data/untapped/raman.pkl.gz',dataset)
 
     # normalize
     # preprocessing.normalize(x,norm='l1',copy=False)

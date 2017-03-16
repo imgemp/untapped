@@ -114,7 +114,9 @@ def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,tria
     return xy, ux, waves, elements, colors
 
 
+### depricated: big_means from url is already preprocessed
 def load_mars_means(big=True):
+    print('WARNING: big_means downloaded from ALL-website is already preprocessed.')
     if big:
         d = np.load('examples/datasets/libs/big_means.npy')
 

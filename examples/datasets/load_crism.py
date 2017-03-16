@@ -14,12 +14,12 @@ from untapped.utilities import load_url
 
 
 def get_endmembers(dataset='examples/datasets/crism/crism.pkl.gz'):
-    x, y, endmembers = load_url('https://people.cs.umass.edu/~imgemp/datasets/crism.pkl.gz',dataset)
+    x, y, endmembers = load_url('http://www-anw.cs.umass.edu/public_data/untapped/crism.pkl.gz',dataset)
     return endmembers
 
 
 def get_data(dataset='examples/datasets/crism/crism.pkl.gz'):
-    x, y, _ = load_url('https://people.cs.umass.edu/~imgemp/datasets/crism.pkl.gz',dataset)
+    x, y, _ = load_url('http://www-anw.cs.umass.edu/public_data/untapped/crism.pkl.gz',dataset)
 
     names = ['olivine','diopside','bytownite']
     colors = ['r','g','b']
