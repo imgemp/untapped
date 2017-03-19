@@ -239,22 +239,23 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     # plt.savefig(res_out+'/endmembers_means_with_groundtruth.png',additional_artists=[lgd],bbox_inches='tight')
     # plt.close()
 
-    score_gen_endmembers = L2(endmembers,groundtruth[:,:len(waves)])
-    for endmember, gt, color, name in zip(endmembers,groundtruth,colors,names):
-        plt.plot(waves,endmember,color=color,lw=2,label=name)
-        plt.plot(waves,gt[:len(waves)],color=color,lw=6,alpha=0.4)
-        score_gen_endmember = L2(endmember,gt[:len(waves)])
-        plt.title('Generating '+name+' with Ground Truth ({:.3f})'.format(score_gen_endmember), fontsize=fs)
-        plt.xlabel('Channels', fontsize=fs)
-        plt.ylabel('Intensities', fontsize=fs)
-        plt.tick_params(axis='both', which='major', labelsize=fs_tick)
-        lgd = plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
-        # if m.variational:
-        #     plt.gca().set_ylim(ax.get_ylim())
-        if force_ylim:
-            plt.gca().set_ylim(ylim)
-        plt.savefig(res_out+'/endmembers_mean_with_groundtruth_'+name+'.png',additional_artists=[lgd],bbox_inches='tight')
-        plt.close()
+    if groundtruth is not None:
+        score_gen_endmembers = L2(endmembers,groundtruth[:,:len(waves)])
+        for endmember, gt, color, name in zip(endmembers,groundtruth,colors,names):
+            plt.plot(waves,endmember,color=color,lw=2,label=name)
+            plt.plot(waves,gt[:len(waves)],color=color,lw=6,alpha=0.4)
+            score_gen_endmember = L2(endmember,gt[:len(waves)])
+            plt.title('Generating '+name+' with Ground Truth ({:.3f})'.format(score_gen_endmember), fontsize=fs)
+            plt.xlabel('Channels', fontsize=fs)
+            plt.ylabel('Intensities', fontsize=fs)
+            plt.tick_params(axis='both', which='major', labelsize=fs_tick)
+            lgd = plt.legend(loc='center left',bbox_to_anchor=(1, 0.5))
+            # if m.variational:
+            #     plt.gca().set_ylim(ax.get_ylim())
+            if force_ylim:
+                plt.gca().set_ylim(ylim)
+            plt.savefig(res_out+'/endmembers_mean_with_groundtruth_'+name+'.png',additional_artists=[lgd],bbox_inches='tight')
+            plt.close()
 
     plt.plot(waves,f(_ux+data['X_'][inds_train_x]).T,'k')
     plt.plot(waves,recon_train.T,'r-.')

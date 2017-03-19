@@ -23,8 +23,6 @@ from plotting.plotting_libs import make_plots
 # load data
 xy, ux, waves, names, colors = load_process_data()
 sup_train_x, sup_train_y, sup_valid_x, sup_valid_y, train_x, train_y = [xyi.astype('float32') for xyi in xy]
-sup_all_x = np.vstack((sup_train_x,sup_valid_x))
-sup_all_y = np.vstack((sup_train_y,sup_valid_y))
 
 # define variable sizes
 num_features = sup_train_x.shape[1]

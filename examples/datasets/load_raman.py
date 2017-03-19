@@ -49,19 +49,22 @@ def get_endmembers(dataset='examples/datasets/raman/raman.pkl.gz'):
     return endmems
 
 
-def load_process_data(dataset='examples/datasets/raman/raman.pkl.gz',trial=0,n_folds=2,remove_mean=False,log_x=False):
+def load_process_data(dataset='examples/datasets/raman/raman.pkl.gz',trial=0,n_folds=2,
+                      remove_mean=False,log_x=False,DropLastDim=True):
     x, y, waves, majors = load_url('http://www-anw.cs.umass.edu/public_data/untapped/raman.pkl.gz',dataset)
 
-    # normalize
-    # preprocessing.normalize(x,norm='l1',copy=False)
+    # last column of y is dummy column (all zeros, major 'name' is None)
+    y = y[:,:-1]
+    majors = majors[:-1]
 
     ux = x.mean(axis=0)
     if remove_mean:
         # mean zero
         x -= ux
 
-    # remove last column
-    y = y[:,:-1]
+    if DropLastDim:
+        # remove last column (for simplex)
+        y = y[:,:-1]
 
     # select train-validation split
     cv = KFold(n_splits=n_folds,shuffle=True,random_state=0).split(X=x,y=y)

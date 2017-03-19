@@ -15,7 +15,8 @@ ALAMOS_MASK[2169:4096] = True
 ALAMOS_MASK[4182:5856] = True
 
 
-def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,trial=0,hardCV=True,cv_param=3,remove_mean=True,log_x=False,eps=0.):
+def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,trial=0,hardCV=True,
+                      cv_param=3,remove_mean=True,log_x=False,eps=0.,DropLastDim=True):
 
     small_means, big_means, cal_data = load_url('http://www-anw.cs.umass.edu/public_data/untapped/libs.pkl.gz',dataset)
 
@@ -82,9 +83,10 @@ def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,tria
     # unsup_y += np.random.rand(*unsup_y.shape) * 0.1/unsup_y.shape[1]
     # unsup_y = np.exp(5*unsup_y)/np.exp(5*unsup_y).sum(axis=1)[:,np.newaxis]
 
-    # remove last column
-    sup_y = sup_y[:,:-1]
-    unsup_y = unsup_y[:,:-1]
+    if DropLastDim:
+        # remove last column
+        sup_y = sup_y[:,:-1]
+        unsup_y = unsup_y[:,:-1]
 
     # trim down unsupervised samples
     Nx = Ny = 500
