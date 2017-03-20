@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from itertools import product
 
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import GridSearchCV
 
 import numpy as np
 
@@ -39,8 +40,11 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     if ylim is not None:
         force_ylim = True
 
-    pls_XY = PLSRegression(n_components=8,scale=False)
+    # pls_XY = PLSRegression(scale=False)
+    parameters = {'n_components':[8,20,50,100]}
+    pls_XY = GridSearchCV(PLSRegression(scale=False), parameters)
     pls_XY.fit(data['X'],y)
+    pls_XY = pls_XY.best_estimator_
     pred_train_pls = pls_XY.predict(data['X'])
     pred_train_pls = (pred_train_pls.T/np.sum(pred_train_pls,axis=1)).T
     pred_valid_pls = pls_XY.predict(data['X_valid'])
@@ -48,8 +52,11 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     score_pred_train_pls = KL(pred_train_pls,y)
     score_pred_valid_pls = KL(pred_valid_pls,y_valid)
 
-    pls_YX = PLSRegression(n_components=min(8,y.shape[1]),scale=False)
+    parameters = {'n_components':np.clip([8,20,50,100],2,y.shape[1])}
+    pls_YX = GridSearchCV(PLSRegression(scale=False), parameters)
+    # pls_YX = PLSRegression(n_components=min(8,y.shape[1]),scale=False)
     pls_YX.fit(y,data['X'])
+    pls_YX = pls_YX.best_estimator_
     gen_train_pls = pls_YX.predict(y)
     gen_valid_pls = pls_YX.predict(y_valid)
     score_gen_train_pls = L2(gen_train_pls,data['X'])
