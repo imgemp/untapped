@@ -41,7 +41,7 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
         force_ylim = True
 
     # pls_XY = PLSRegression(scale=False)
-    parameters = {'n_components':[8,20,50,100]}
+    parameters = {'n_components':[4,8,20,50,100,500]}
     pls_XY = GridSearchCV(PLSRegression(scale=False), parameters)
     pls_XY.fit(data['X'],y)
     pls_XY = pls_XY.best_estimator_
@@ -51,8 +51,8 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     pred_valid_pls = (pred_valid_pls.T/np.sum(pred_valid_pls,axis=1)).T
     score_pred_train_pls = KL(pred_train_pls,y)
     score_pred_valid_pls = KL(pred_valid_pls,y_valid)
-
-    parameters = {'n_components':np.clip([8,20,50,100],2,y.shape[1])}
+    print(pls_XY)
+    parameters = {'n_components':np.clip([4,8,20,50,100],2,y.shape[1])}
     pls_YX = GridSearchCV(PLSRegression(scale=False), parameters)
     # pls_YX = PLSRegression(n_components=min(8,y.shape[1]),scale=False)
     pls_YX.fit(y,data['X'])
@@ -143,7 +143,7 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     ax = plt.gca()
     plt.savefig(res_out+'/comp_valid.png',additional_artists=[lgd],bbox_inches='tight')
     plt.close()
-
+    print('wave_len',len(waves))
     plt.plot(waves,f(_ux+data['X'][inds_sup_train]).T,'k')
     plt.plot(waves,gen_train.T,'r-.')
     plt.title('Generating Spectra - Training Error', fontsize=fs)

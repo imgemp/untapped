@@ -111,7 +111,7 @@ res_out='examples/results/fusion/libs/'+timeStamp().format("")
 m = SSDGM(num_features,num_output,model_dict=model_dict,
           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
           coeff_x=1e-1,coeff_y=1e-1,coeff_x_dis=1,coeff_y_dis=1e-4,coeff_x_prob=0,coeff_y_prob=0,
-          num_epochs=2000,eval_freq=500,lr=1e-2,eq_samples=1,iw_samples=1,
+          num_epochs=1500,eval_freq=500,lr=1e-2,eq_samples=1,iw_samples=1,
           res_out=res_out)
 
 # fit the model
@@ -195,7 +195,8 @@ sup_train_y_lr = sup_train_y_r[:,:-1]
 sup_valid_y_lr = sup_valid_y_r[:,:-1]
 train_y_lr = train_y_r[:,:-1]
 ux_lr = np.append(ux,ux_r)
-waves_lr = np.append(waves,waves_r)
+# waves_lr = np.append(waves,waves_r)
+waves_lr = np.arange(sup_train_x_lr.shape[1])
 names_lr = mineral_names
 colors_lr = colors_r[selected_minerals]
 
