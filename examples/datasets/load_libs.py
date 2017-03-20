@@ -16,7 +16,7 @@ ALAMOS_MASK[4182:5856] = True
 
 
 def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,trial=0,hardCV=True,
-                      cv_param=3,remove_mean=True,log_x=False,eps=0.,DropLastDim=True):
+                      cv_param=3,remove_mean=False,log_x=False,eps=0.,DropLastDim=True):
 
     small_means, big_means, cal_data = load_url('http://www-anw.cs.umass.edu/public_data/untapped/libs.pkl.gz',dataset)
 

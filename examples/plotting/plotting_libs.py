@@ -141,7 +141,7 @@ def make_plots(m,data,colors,names,waves=None,sample_size=10,ux=0,remove_mean=Fa
     plt.tick_params(axis='both', which='major', labelsize=fs_tick)
     if force_ylim:
         plt.gca().set_ylim(ylim)
-    plt.savefig(res_out+'/genspectra_train.png')
+    plt.savefig(res_out+'/genspectra_train.png',bbox_inches='tight')
     plt.close()
 
     plt.plot(waves,f(_ux+data['X_valid'][inds_sup_valid]).T,'k')
@@ -152,7 +152,7 @@ def make_plots(m,data,colors,names,waves=None,sample_size=10,ux=0,remove_mean=Fa
     plt.tick_params(axis='both', which='major', labelsize=fs_tick)
     if force_ylim:
         plt.gca().set_ylim(ylim)
-    plt.savefig(res_out+'/genspectra_valid.png')
+    plt.savefig(res_out+'/genspectra_valid.png',bbox_inches='tight')
     plt.close()
 
     if m.variational:
@@ -192,7 +192,7 @@ def make_plots(m,data,colors,names,waves=None,sample_size=10,ux=0,remove_mean=Fa
     plt.tick_params(axis='both', which='major', labelsize=fs_tick)
     if force_ylim:
         plt.gca().set_ylim(ylim)
-    plt.savefig(res_out+'/recon_train.png')
+    plt.savefig(res_out+'/recon_train.png',bbox_inches='tight')
     plt.close()
 
     plt.plot(waves,f(_ux+data['X_valid'][inds_sup_valid]).T,'k')
@@ -203,7 +203,7 @@ def make_plots(m,data,colors,names,waves=None,sample_size=10,ux=0,remove_mean=Fa
     plt.tick_params(axis='both', which='major', labelsize=fs_tick)
     if force_ylim:
         plt.gca().set_ylim(ylim)
-    plt.savefig(res_out+'/recon_valid.png')
+    plt.savefig(res_out+'/recon_valid.png',bbox_inches='tight')
     plt.close()
 
 def KL(pred,true):
