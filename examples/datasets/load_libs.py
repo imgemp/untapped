@@ -112,7 +112,6 @@ def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,tria
 
     colors = cm.rainbow(np.linspace(0,1,len(elements)))
 
-    # return unsup_x, train, valid, meta_split, meta
     return xy, ux, waves, elements, colors
 
 
