@@ -5,6 +5,7 @@ theano.config.floatX = 'float32'
 theano.config.exception_verbosity = 'high'
 theano.config.traceback.limit = 20
 import lasagne
+from lasagne.layers import EmbeddingLayer, InputLayer, get_output
 from lasagne.layers.helper import get_all_layers
 from untapped.parmesan.layers import SampleLayer, BernoulliSampleLayer, ConcreteSampleLayer, ListIndexLayer
 from untapped.parmesan.distributions import log_normal as log_norm  # affects SampleLayer nonlinearity argument
@@ -80,15 +81,19 @@ def FlowNet(input_shape,sym_eq_samples,sym_iw_samples,hidden,gain,nonlin,
     Creates deep net --> sample layer --> flows
     """
     params = {}
+    hidden_layers = []
 
     l_new = input_shape
     glorot_uni = lasagne.init.GlorotUniform
+    normal = lasagne.init.Normal
     for n,h in enumerate(hidden):
         l_new = lasagne.layers.DenseLayer(l_new,
                                           num_units=h,
-                                          W=glorot_uni(gain),
+                                          # W=glorot_uni(gain),
+                                          W=normal(.001),
                                           nonlinearity=nonlin,
                                           name='l_'+str(n))
+        hidden_layers += [l_new]
         if batch_norm:
             l_new = lasagne.layers.batch_norm(l_new)
     if len(hidden) == 0:
@@ -120,15 +125,16 @@ def FlowNet(input_shape,sym_eq_samples,sym_iw_samples,hidden,gain,nonlin,
     params['all'] = lasagne.layers.get_all_params([l_zk])
     params['var'] = list(set(params['all'])-set(params['nonvar']))
 
-    return l_zk, l_z0, params
+    return l_zk, l_z0, params, hidden_layers
 
 
 def sample(l_new,num_output,sym_eq_samples,sym_iw_samples,sample_layer,gain):
     glorot_uni = lasagne.init.GlorotUniform
+    normal = lasagne.init.Normal
     if sample_layer is SampleLayer:
-        l_mu = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=glorot_uni(gain),
-                                     nonlinearity=None,name='l_mu')
-        l_sigma = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=lasagne.init.Constant(0),
+        l_mu = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=normal(.001), #W=glorot_uni(gain),
+                                         nonlinearity=None,name='l_mu')
+        l_sigma = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=normal(.001), #W=lasagne.init.Constant(0),
                                             nonlinearity=theano.tensor.nnet.softplus,
                                             name='l_log_var',
                                             b=lasagne.init.Constant(0))
@@ -138,7 +144,7 @@ def sample(l_new,num_output,sym_eq_samples,sym_iw_samples,sample_layer,gain):
                           nonlinearity=lambda x: x,
                           name='l_z')
     elif sample_layer is BernoulliSampleLayer:
-        l_mu = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=glorot_uni(gain),
+        l_mu = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=normal(.001), #W=glorot_uni(gain),
                                         nonlinearity=theano.tensor.nnet.sigmoid,
                                         name='l_mu',
                                         b=lasagne.init.Constant(0))
@@ -147,7 +153,7 @@ def sample(l_new,num_output,sym_eq_samples,sym_iw_samples,sample_layer,gain):
                                    eq_samples=sym_eq_samples,iw_samples=sym_iw_samples,
                                    name='l_z')
     elif sample_layer is ConcreteSampleLayer:
-        l_logits = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=glorot_uni(gain),
+        l_logits = lasagne.layers.DenseLayer(l_new,num_units=num_output,W=normal(.001), #W=glorot_uni(gain),
                                              nonlinearity=None,
                                              name='l_logits',
                                              b=lasagne.init.Constant(0))
@@ -191,7 +197,7 @@ def M1(M_input,model_dict,variational=True,
     try:
         # Latent recognition model q(z|x)
         x_shape = M_input.output_shape
-        q_z_x, z0, params_x_z1 = FlowNet(x_shape,sym_eq_samples,sym_iw_samples,
+        q_z_x, z0, params_x_z1, _ = FlowNet(x_shape,sym_eq_samples,sym_iw_samples,
                                          **model_dict['x->z1']['arch'])
         model_dict['params']['x->z1'] = params_x_z1['all']
         model_dict['params']['x->z1__nonvar'] = params_x_z1['nonvar']
@@ -199,7 +205,7 @@ def M1(M_input,model_dict,variational=True,
 
         # Generative model p(x|z)
         z_shape = q_z_x.output_shape
-        q_x_z, x0, params_z1__x = FlowNet(z_shape,sym_eq_samples,sym_iw_samples,
+        q_x_z, x0, params_z1__x, _ = FlowNet(z_shape,sym_eq_samples,sym_iw_samples,
                                           **model_dict['z1->_x']['arch'])
         model_dict['params']['z1->_x'] = params_x_z1['all']
         model_dict['params']['z1->_x__nonvar'] = params_z1__x['nonvar']
@@ -482,7 +488,7 @@ def M1(M_input,model_dict,variational=True,
 
 def M2(M_input,model_dict,variational=True,
        prior_xz1=None,prior_y=None,prior_z2=None,coeff_sup=1.,model_type=1,
-       loss_x=None,loss_y=None):
+       loss_x=None,loss_y=None,x_is=None):
     ''' Build Model '''
     assert model_type in [1,2]
     if model_type == 1:
@@ -498,11 +504,14 @@ def M2(M_input,model_dict,variational=True,
     sym_y_sup = syms['y_sup']
     sym_eq_samples = syms['eq_samples']
     sym_iw_samples = syms['iw_samples']
+    sym_xid = syms['x_id']
+    sym_yid = syms['y_id']
+    sym_xyid = syms['xy_id']
     det = not variational
     try:
         # Supervised recognition model q(y|z1)
         z1_shape = M_input.output_shape
-        q_y_z1, y0, params_z1_y = FlowNet(z1_shape,sym_eq_samples,sym_iw_samples,
+        q_y_z1, y0, params_z1_y, hl_z1_y = FlowNet(z1_shape,sym_eq_samples,sym_iw_samples,
                                           **model_dict['z1->y']['arch'])
         model_dict['params']['z1->y'] = params_z1_y['all']
         model_dict['params']['z1->y__nonvar'] = params_z1_y['nonvar']
@@ -512,7 +521,7 @@ def M2(M_input,model_dict,variational=True,
         z1_shape = M_input.output_shape
         y_shape = q_y_z1.output_shape
         z1y_shape = add_shape(z1_shape,y_shape)
-        q_z2_z1y, z20, params_z1y_z2 = FlowNet(z1y_shape,sym_eq_samples,sym_iw_samples,
+        q_z2_z1y, z20, params_z1y_z2, hl_z1y_z2 = FlowNet(z1y_shape,sym_eq_samples,sym_iw_samples,
                                                **model_dict['z1y->z2']['arch'])
         model_dict['params']['z1y->z2'] = params_z1y_z2['all']
         model_dict['params']['z1y->z2__nonvar'] = params_z1y_z2['nonvar']
@@ -525,7 +534,7 @@ def M2(M_input,model_dict,variational=True,
         # Generative model p(z1|y,z2)
         z2_shape = q_z2_z1y.output_shape
         yz2_shape = add_shape(y_shape,z2_shape)
-        q_z1_yz2, z10, params_yz2__z1 = FlowNet(yz2_shape,sym_eq_samples,sym_iw_samples,
+        q_z1_yz2, z10, params_yz2__z1, _ = FlowNet(yz2_shape,sym_eq_samples,sym_iw_samples,
                                                 **model_dict['yz2->_z1']['arch'])
         model_dict['params']['yz2->_z1'] = params_yz2__z1['all']
         model_dict['params']['yz2->_z1__nonvar'] = params_yz2__z1['nonvar']
@@ -549,6 +558,23 @@ def M2(M_input,model_dict,variational=True,
         print('Exception: '+repr(e))
         print('M2 build failed!')
         return False
+
+    # get hidden layer outputs for activation penalty
+    hl_z1_y_outputs = lasagne.layers.get_output(hl_z1_y,inputs=sym_x,deterministic=True)
+    hl_z1_y_avgact = [T.mean(out,axis=0) for out in hl_z1_y_outputs]  # average along batch dimension should result in num_layers x num_units
+    hl_z1y_z2_outputs = lasagne.layers.get_output(hl_z1y_z2,inputs=sym_x,deterministic=True)
+    hl_z1y_z2_avgact = [T.mean(out,axis=0) for out in hl_z1y_z2_outputs]  # average along batch dimension should result in num_layers x num_units
+    hl_avgact = hl_z1_y_avgact + hl_z1y_z2_avgact
+    model_dict['objs']['act'] = hl_avgact
+
+    # lookup importance sampling weights
+    # x_is = np.ones((460500,1))
+    x_is = None
+    if x_is is not None:
+        el = EmbeddingLayer(InputLayer((x_is.shape[0],)),input_size=x_is.shape[0],output_size=x_is.shape[1],W=x_is)
+        weights = get_output(el,sym_xid).dimshuffle(0,'x','x',1)
+    else:
+        weights = 1
 
     ''' Get Key Layers '''
     layers_z1_y, y_name, names_z1_y = get_key_layers_names(model,model_dict['z1->y']['arch'],'x->y')
@@ -603,11 +629,19 @@ def M2(M_input,model_dict,variational=True,
     # encode
     model_outputs(model_dict,'yz2->_z1','nondet_y',inputs={y:sym_y,z2:sym_z2},deterministic=False)
     model_outputs(model_dict,'yz2->_z1','det_y',inputs={y:sym_y,z2:sym_z2},deterministic=True)
+    
     # decode
-    nondet_z1_out = model_dict['yz2->_z1']['key_outputs']['nondet_y'][_z1_name]
-    model_outputs(model_dict,'z1->y','nondet_y',inputs={M_input:nondet_z1_out},deterministic=False)
-    det_z1_out = model_dict['yz2->_z1']['key_outputs']['det_y'][_z1_name]
-    model_outputs(model_dict,'z1->y','det_y',inputs={M_input:det_z1_out},deterministic=True)
+    _z1_nondet_yz2 = model_dict['yz2->_z1']['key_outputs']['nondet_y'][_z1_name]
+    model_outputs(model_dict,'z1->y','nondet_y',inputs={M_input:_z1_nondet_yz2},deterministic=False)
+    _z1_det_yz2 = model_dict['yz2->_z1']['key_outputs']['det_y'][_z1_name]
+    model_outputs(model_dict,'z1->y','det_y',inputs={M_input:_z1_det_yz2},deterministic=True)
+
+    _y_nondet_z1 = model_dict['z1->y']['key_outputs']['nondet_y'][y_name]
+    _z1_nondet_yz2_tiled = T.tile(_z1_nondet_yz2,(sym_eq_samples*sym_iw_samples,1))
+    model_outputs(model_dict,'z1y->z2','nondet_y',inputs={M_input:_z1_nondet_yz2_tiled,y:_y_nondet_z1},deterministic=False)
+    _y_det_z1 = model_dict['z1->y']['key_outputs']['det_y'][y_name]
+    _z1_det_yz2_tiled = T.tile(_z1_det_yz2,(sym_eq_samples*sym_iw_samples,1))
+    model_outputs(model_dict,'z1y->z2','det_y',inputs={M_input:_z1_det_yz2_tiled,y:_y_det_z1},deterministic=True)
 
     # supervised
     # z1 -> y
@@ -644,16 +678,16 @@ def M2(M_input,model_dict,variational=True,
     #              supervised generative loss for inverse net)
     model_dict['z1->y']['key_objs']['var'] = OrderedDict()
 
-    # recognition loss
+    # recognition loss: q(y|z1)
     layer_outs = model_dict['z1->y']['key_outputs']['nondet_x']
-    nondet_rec_y = LL_rec(1,layer_outs,y_num_units,sym_eq_samples,sym_iw_samples,power=1)
+    nondet_rec_y = LL_rec(1,layer_outs,y_num_units,sym_eq_samples,sym_iw_samples,power=1,isw=weights)
     model_dict['z1->y']['key_objs']['var']['nondet_x'] = nondet_rec_y
 
     layer_outs = model_dict['z1->y']['key_outputs']['det_x']
-    det_rec_y = LL_rec(1,layer_outs,y_num_units,sym_eq_samples,sym_iw_samples,power=1)
+    det_rec_y = LL_rec(1,layer_outs,y_num_units,sym_eq_samples,sym_iw_samples,power=1,isw=weights)
     model_dict['z1->y']['key_objs']['var']['det_x'] = det_rec_y
 
-    # z1->y supervised loss
+    # z1->y supervised loss: L(y,ytrue)
     layer_outs = model_dict['z1->y']['key_outputs']['nondet_x_sup']
     nondet_y_out = layer_outs[y_name]
     nondet_sup = sup_error(nondet_y_out,sym_y_sup,y_num_units,
@@ -666,7 +700,7 @@ def M2(M_input,model_dict,variational=True,
                         sym_eq_samples**(1+M1M2),sym_iw_samples**(1+M1M2),loss=loss_y)
     model_dict['z1->y']['key_objs']['var']['det_sup'] = det_sup
 
-    # generative loss for inverse net
+    # generative loss for inverse net: log[q(y|_z1)] + log[q(_z1)]
     sym_y0 = lasagne.layers.get_output(y0,inputs=sym_y,deterministic=True)
 
     z1_layer_outs = model_dict['yz2->_z1']['key_outputs']['nondet_y']
@@ -683,7 +717,7 @@ def M2(M_input,model_dict,variational=True,
                        sym_eq_samples,sym_iw_samples,power=2,priors=prior_xz1)
     model_dict['z1->y']['key_objs']['var']['det_y'] = det_gen_y
 
-    # supervised generative loss for inverse net
+    # supervised generative loss for inverse net: log[q(y|z1_)] + log[q(_z1)]
     sym_y0_sup = lasagne.layers.get_output(y0,inputs=sym_y_sup,deterministic=True)
     z1_layer_outs = model_dict['yz2->_z1']['key_outputs']['nondet_xy_sup']
     z1_sup = lasagne.layers.get_output(M_input,inputs={l_input:sym_x_sup},deterministic=False)
@@ -714,10 +748,10 @@ def M2(M_input,model_dict,variational=True,
     # non-variational (z1->y supervised loss,reconstruction error for inverse net)
     model_dict['z1->y']['key_objs']['nonvar'] = OrderedDict()
 
-    # z1->y supervised error
+    # z1->y supervised error: L(y,ytrue)
     model_dict['z1->y']['key_objs']['nonvar']['det_sup'] = model_dict['z1->y']['key_objs']['var']['det_sup']
 
-    # reconstruction error for inverse net
+    # reconstruction error for inverse net: L(y,yrecon)
     # this power should prob be 3 if sampling z's as well
     # i think z's are set to zeros for now in SSDGM somewhere maybe?
     _y_layer_outs = model_dict['z1->y']['key_outputs']['det_y']
@@ -734,18 +768,18 @@ def M2(M_input,model_dict,variational=True,
     #              z1y->z2 supervised loss IGNORED, generative loss for inverse net IGNORED)
     model_dict['z1y->z2']['key_objs']['var'] = OrderedDict()
 
-    # recognition loss
+    # recognition loss: log[q(z2|z1,y)]
     layer_outs = model_dict['z1y->z2']['key_outputs']['nondet_x']
     # nondet_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=2)
-    nondet_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=2+M1M2)
+    nondet_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=2+M1M2,isw=weights)
     model_dict['z1y->z2']['key_objs']['var']['nondet_x'] = nondet_rec_z2
 
     layer_outs = model_dict['z1y->z2']['key_outputs']['det_x']
     # det_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=2)
-    det_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=2+M1M2)
+    det_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=2+M1M2,isw=weights)
     model_dict['z1y->z2']['key_objs']['var']['det_x'] = det_rec_z2
 
-    # supervised recognition loss
+    # supervised recognition loss: log[q(z2|z1,y)]
     layer_outs = model_dict['z1y->z2']['key_outputs']['nondet_xy_sup']
     # nondet_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=1)
     nondet_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=1+M1M2)
@@ -756,6 +790,52 @@ def M2(M_input,model_dict,variational=True,
     det_rec_z2 = LL_rec(1,layer_outs,z2_num_units,sym_eq_samples,sym_iw_samples,power=1+M1M2)
     model_dict['z1y->z2']['key_objs']['var']['det_x_sup'] = det_rec_z2
 
+    # generative loss for inverse net: log[q(z2|z1,y)] testing
+    # sym_y0 = lasagne.layers.get_output(y0,inputs=sym_y,deterministic=True)
+    sym_z20 = lasagne.layers.get_output(z20,inputs=sym_z2,deterministic=True)
+
+    # z1_layer_outs = model_dict['yz2->_z1']['key_outputs']['nondet_y']
+    # _y_layer_outs = model_dict['z1->y']['key_outputs']['nondet_y']
+    _z2_layer_outs = model_dict['z1y->z2']['key_outputs']['nondet_y']
+    # _z2_layer_outs['l_sample'] = T.tile(_z2_layer_outs['l_sample'],(sym_eq_samples*sym_iw_samples,1))
+    nondet_gen_z2 = LL_gen(1,[],_z2_layer_outs,sym_z20,
+                          [],z2_num_units,
+                          sym_eq_samples,sym_iw_samples,power=3,priors=None)
+    model_dict['z1y->z2']['key_objs']['var']['nondet_y'] = nondet_gen_z2
+
+    _z2_layer_outs = model_dict['z1y->z2']['key_outputs']['det_y']
+    # _z2_layer_outs['l_sample'] = T.tile(_z2_layer_outs['l_sample'],(sym_eq_samples*sym_iw_samples,1))
+    det_gen_z2 = LL_gen(1,[],_z2_layer_outs,sym_z20,
+                          [],z2_num_units,
+                          sym_eq_samples,sym_iw_samples,power=3,priors=None)
+    model_dict['z1y->z2']['key_objs']['var']['det_y'] = det_gen_z2
+
+    # supervised generative loss for inverse net: log[q(z2|z1,y)] testing
+    sym_z20 = lasagne.layers.get_output(z20,inputs=sym_z2,deterministic=True)
+
+    _z2_layer_outs = model_dict['z1y->z2']['key_outputs']['nondet_xy_sup']
+    nondet_gen_z2 = LL_gen(1,[],_z2_layer_outs,sym_z20,
+                          [],z2_num_units,
+                          sym_eq_samples,sym_iw_samples,power=2,priors=None)
+    model_dict['z1y->z2']['key_objs']['var']['nondet_y_sup'] = nondet_gen_z2
+
+    _z2_layer_outs = model_dict['z1y->z2']['key_outputs']['det_xy_sup']
+    det_gen_z2 = LL_gen(1,[],_z2_layer_outs,sym_z20,
+                          [],z2_num_units,
+                          sym_eq_samples,sym_iw_samples,power=2,priors=None)
+    model_dict['z1y->z2']['key_objs']['var']['det_y_sup'] = det_gen_z2
+
+    # nonvariational (z2 reconstruction error for inverse net)
+    model_dict['z1y->z2']['key_objs']['nonvar'] = OrderedDict()
+
+    # z2 reconstruction error for inverse net
+    _z2_layer_outs = model_dict['z1y->z2']['key_outputs']['det_y']  # testing
+    det_z2_out = _z2_layer_outs[y_name]
+    det_gen_z2 = sup_error(det_z2_out,sym_z2,z2_num_units,
+                          sym_eq_samples**3,sym_iw_samples**3,
+                          loss=L2)
+    model_dict['z1y->z2']['key_objs']['nonvar']['det_y'] = det_gen_z2
+
     # yz2 -> _z1 layer
     model_dict['yz2->_z1']['key_objs'] = OrderedDict()
 
@@ -764,7 +844,7 @@ def M2(M_input,model_dict,variational=True,
     #              recognition loss for inverse net)
     model_dict['yz2->_z1']['key_objs']['var'] = OrderedDict()
 
-    # generative loss
+    # generative loss: log[p(z1|y,z2)] + log[p(y)] + log[p(z2)]
     z1 = lasagne.layers.get_output(M_input,inputs={l_input:sym_x},deterministic=True)
     _z10 = lasagne.layers.get_output(z10,inputs=z1,deterministic=True)
     y_layer_outs = model_dict['z1->y']['key_outputs']['nondet_x']
@@ -773,7 +853,7 @@ def M2(M_input,model_dict,variational=True,
     _z1_layer_outs = model_dict['yz2->_z1']['key_outputs']['nondet_x']
     nondet_gen_z1 = LL_gen(1,[y_layer_outs,z2_layer_outs],_z1_layer_outs,_z10,
                            [y_num_units,z2_num_units],z1_num_units,
-                           sym_eq_samples,sym_iw_samples,power=3,priors=[prior_y,prior_z2])
+                           sym_eq_samples,sym_iw_samples,power=3,priors=[prior_y,prior_z2],isw=weights)
     model_dict['yz2->_z1']['key_objs']['var']['nondet_x'] = nondet_gen_z1
 
     y_layer_outs = model_dict['z1->y']['key_outputs']['det_x']
@@ -782,10 +862,10 @@ def M2(M_input,model_dict,variational=True,
     _z1_layer_outs = model_dict['yz2->_z1']['key_outputs']['det_x']
     det_gen_z1 = LL_gen(1,[y_layer_outs,z2_layer_outs],_z1_layer_outs,_z10,
                         [y_num_units,z2_num_units],z1_num_units,
-                        sym_eq_samples,sym_iw_samples,power=3,priors=[prior_y,prior_z2])
+                        sym_eq_samples,sym_iw_samples,power=3,priors=[prior_y,prior_z2],isw=weights)
     model_dict['yz2->_z1']['key_objs']['var']['det_x'] = det_gen_z1
 
-    # supervised generative loss
+    # supervised generative loss: log[p(z1|y,z2)] + log[p(z2)]
     z1_sup = lasagne.layers.get_output(M_input,inputs={l_input:sym_x_sup},deterministic=True)
     _z10_sup = lasagne.layers.get_output(z10,inputs=z1_sup,deterministic=True)
     # y_layer_outs = model_dict['z1->y']['key_outputs']['nondet_x_sup']
@@ -814,7 +894,7 @@ def M2(M_input,model_dict,variational=True,
                         sym_eq_samples,sym_iw_samples,power=2,priors=prior_z2)
     model_dict['yz2->_z1']['key_objs']['var']['det_x_sup'] = det_gen_z1
 
-    # yz2->_z1 supervised loss
+    # yz2->_z1 supervised loss: L(_z1,z1true)
     layer_outs = model_dict['yz2->_z1']['key_outputs']['nondet_xy_sup']
     nondet_z1_out = layer_outs[_z1_name]
     nondet_sup = sup_error(nondet_z1_out,z1_sup,z1_num_units,
@@ -827,7 +907,7 @@ def M2(M_input,model_dict,variational=True,
                         sym_eq_samples**2,sym_iw_samples**2,loss=loss_x)
     model_dict['yz2->_z1']['key_objs']['var']['det_sup'] = det_sup
 
-    # recognition loss for inverse net
+    # recognition loss for inverse net: log[p(_z1|y,z2)]
     layer_outs = model_dict['yz2->_z1']['key_outputs']['nondet_y']
     nondet_rec_z1 = LL_rec(1,layer_outs,z1_num_units,sym_eq_samples,sym_iw_samples,power=1)
     model_dict['yz2->_z1']['key_objs']['var']['nondet_y'] = nondet_rec_z1
@@ -839,7 +919,7 @@ def M2(M_input,model_dict,variational=True,
     # non-variational (reconstruction error, yz2->z1 supervised loss)
     model_dict['yz2->_z1']['key_objs']['nonvar'] = OrderedDict()
 
-    # reconstruction error
+    # reconstruction error: L(z1,_z1)
     _z1_layer_outs = model_dict['yz2->_z1']['key_outputs']['det_x']
     det_z1_out = _z1_layer_outs[_z1_name]
     det_gen_z1 = sup_error(det_z1_out,z1,z1_num_units,
@@ -869,10 +949,11 @@ def M2(M_input,model_dict,variational=True,
     # M2 objective (y-unsupervised)
     model_dict['objs']['var']['M2_y_rec_z1'] = model_dict['yz2->_z1']['key_objs']['var']['nondet_y']['sum']
     model_dict['objs']['var']['M2_y_gen_y'] = model_dict['z1->y']['key_objs']['var']['nondet_y']['sum']
-    model_dict['objs']['var']['M2_y'] = model_dict['objs']['var']['M2_y_rec_z1'] - model_dict['objs']['var']['M2_y_gen_y']
+    model_dict['objs']['var']['M2_y_gen_z2'] = model_dict['z1y->z2']['key_objs']['var']['nondet_y']['sum']
+    model_dict['objs']['var']['M2_y'] = model_dict['objs']['var']['M2_y_rec_z1'] - model_dict['objs']['var']['M2_y_gen_y'] - model_dict['objs']['var']['M2_y_gen_z2']
 
     # non-variational
-    model_dict['objs']['nonvar']['M2_y'] = model_dict['z1->y']['key_objs']['nonvar']['det_y']
+    model_dict['objs']['nonvar']['M2_y'] = model_dict['z1->y']['key_objs']['nonvar']['det_y'] + model_dict['z1y->z2']['key_objs']['nonvar']['det_y']
 
     # M2 objective (supervised)
     # variational
@@ -881,7 +962,8 @@ def M2(M_input,model_dict,variational=True,
     model_dict['objs']['var']['M2_x_sup'] = model_dict['objs']['var']['M2_x_sup_rec_z2_sup'] - model_dict['objs']['var']['M2_x_sup_gen_z1_sup']
 
     model_dict['objs']['var']['M2_y_sup_gen_y_sup'] = model_dict['z1->y']['key_objs']['var']['nondet_y_sup']['sum']
-    model_dict['objs']['var']['M2_y_sup'] = -model_dict['objs']['var']['M2_y_sup_gen_y_sup']
+    model_dict['objs']['var']['M2_y_sup_gen_z2_sup'] = model_dict['z1y->z2']['key_objs']['var']['nondet_y_sup']['sum']
+    model_dict['objs']['var']['M2_y_sup'] = -model_dict['objs']['var']['M2_y_sup_gen_y_sup'] - model_dict['objs']['var']['M2_y_sup_gen_z2_sup']
 
     model_dict['objs']['var']['M2_x_sup_dis'] = model_dict['z1->y']['key_objs']['var']['nondet_sup']
     model_dict['objs']['var']['M2_y_sup_dis'] = model_dict['yz2->_z1']['key_objs']['var']['nondet_sup']
@@ -946,8 +1028,13 @@ def sup_error(predicted,actual,num_output,eq_samples,iw_samples,loss=None):
     return T.mean(sup_train)
 
 
+def L1(predicted,actual):
+    return T.sum(T.abs_(predicted-actual),axis=3)
+
+
 def L2(predicted,actual):
-    return T.sqrt(T.sum(T.sqr(predicted-actual),axis=3))
+    # return T.sqrt(T.sum(T.sqr(predicted-actual),axis=3))
+    return T.sum(T.sqr(predicted-actual),axis=3)
 
 
 def REP(predicted,actual):
@@ -965,7 +1052,16 @@ def KL(predicted,actual):
     return KL_most + KL_last
 
 
-def LL_rec(t, layer_outs, num_units, eq_samples, iw_samples, power=1):
+def binary_cross_entropy(predicted,actual):
+    predicted = 0.99*(predicted+.01)
+    return T.nnet.binary_crossentropy(predicted, actual)
+
+
+def categorical_cross_entropy(predicted,actual):
+    return T.nnet.categorical_crossentropy(predicted, actual)
+
+
+def LL_rec(t, layer_outs, num_units, eq_samples, iw_samples, power=1, isw=None):
     assert isinstance(power,int) and power >= 1
     pre_shape = (-1,eq_samples**(power-1),iw_samples**(power-1),num_units)
     post_shape = (-1,eq_samples**power,iw_samples**power,num_units)
@@ -1003,7 +1099,10 @@ def LL_rec(t, layer_outs, num_units, eq_samples, iw_samples, power=1):
                 z0_log_var = z0_log_var.dimshuffle(0,'x','x',1)
             else:
                 z0_log_var = T.tile(z0_log_var.reshape(pre_shape),(1,eq_samples,iw_samples,1))
-            log_q0z0_given_x = log_norm(z0, z0_mu, z0_log_var).sum(axis=3)
+            if isw is not None:
+                log_q0z0_given_x = (isw*log_norm(z0, z0_mu, z0_log_var)).sum(axis=3)
+            else:
+                log_q0z0_given_x = log_norm(z0, z0_mu, z0_log_var).sum(axis=3)
         else:
             if in_A:
                 log_q0z0_given_x = log_bern(z0, z0_mu).sum(axis=3)
@@ -1017,7 +1116,10 @@ def LL_rec(t, layer_outs, num_units, eq_samples, iw_samples, power=1):
     if any('l_nf' in key for key in layer_outs_keys):
         logdet_Js = [v for k,v in layer_outs.items() if 'l_nf_' in k]
         new_shape = post_shape[:-1]
-        logdet_Js = [ldj.reshape(new_shape) for ldj in logdet_Js]
+        if isw is not None:
+            logdet_Js = [isw*ldj.reshape(new_shape) for ldj in logdet_Js]
+        else:
+            logdet_Js = [ldj.reshape(new_shape) for ldj in logdet_Js]
         sum_logdet_Js = sum(logdet_Js)
         partial_LL['sum_logdet_Js'] = sum_logdet_Js.mean()
         partial_LL['sum'] -= sum_logdet_Js
@@ -1028,7 +1130,7 @@ def LL_rec(t, layer_outs, num_units, eq_samples, iw_samples, power=1):
 
 
 def LL_gen(t, zs_layer_outs, x_layer_outs, x, zs_num_units, x_num_units,
-           eq_samples, iw_samples, power=1, priors=None):
+           eq_samples, iw_samples, power=1, priors=None, isw=None):
     assert isinstance(power,int) and power >= 1
     partial_LL = OrderedDict([('sum',0)])
 
@@ -1055,7 +1157,10 @@ def LL_gen(t, zs_layer_outs, x_layer_outs, x, zs_num_units, x_num_units,
                 zk = zk.reshape(pre_shape)
             if priors[i] is not None:
                 log_pzk = priors[i](zk)
-                partial_LL['log_pzk'+str(i)] = log_pzk.mean()
+                if isw is not None:
+                    partial_LL['log_pzk'+str(i)] = (isw*log_pzk).mean()
+                else:
+                    partial_LL['log_pzk'+str(i)] = log_pzk.mean()
                 partial_LL['sum'] += T.tile(log_pzk,(1,eq_samples,iw_samples))
 
     x_layer_outs_keys = x_layer_outs.keys()
@@ -1084,8 +1189,11 @@ def LL_gen(t, zs_layer_outs, x_layer_outs, x, zs_num_units, x_num_units,
             if power == 1:
                 x_log_var = x_log_var.dimshuffle(0,'x','x',1)
             else:
-                x_log_var = x_log_var.reshape(pre_shape)        
-            log_px_given_zk = log_norm(x, x_mu, x_log_var).sum(axis=3)
+                x_log_var = x_log_var.reshape(pre_shape)
+            if isw is not None:
+                log_px_given_zk = (isw*log_norm(x, x_mu, x_log_var)).sum(axis=3)
+            else:
+                log_px_given_zk = log_norm(x, x_mu, x_log_var).sum(axis=3)
         else:
             if in_A:
                 log_px_given_zk = log_bern(x, x_mu).sum(axis=3)
@@ -1099,7 +1207,10 @@ def LL_gen(t, zs_layer_outs, x_layer_outs, x, zs_num_units, x_num_units,
     if any('l_nf' in key for key in x_layer_outs_keys):
         logdet_Js = [v for k,v in x_layer_outs.items() if 'l_nf_' in k]
         new_shape = post_shape[:-1]
-        logdet_Js = [ldj.reshape(new_shape) for ldj in logdet_Js]
+        if isw is not None:
+            logdet_Js = [isw*ldj.reshape(new_shape) for ldj in logdet_Js]
+        else:
+            logdet_Js = [ldj.reshape(new_shape) for ldj in logdet_Js]
         sum_logdet_Js = sum(logdet_Js)
         partial_LL['sum_logdet_Js'] = sum_logdet_Js.mean()
         partial_LL['sum'] -= sum_logdet_Js
@@ -1142,6 +1253,15 @@ def dirichlet(x,alpha,eps=1e-3,axis=-1):
     ll_last = T.log(x_last.clip(eps,1.))*(alpha[-1]-1.)
     log_pzk = -logBeta + ll + ll_last
     return log_pzk
+
+
+def log_beta(x,alpha,beta,eps=1e-3,axis=-1):
+    frac = T.sum(x,axis=axis,keepdims=True)/x.shape[-1]
+    x_ = T.concatenate([x,frac],axis=axis)
+    # x_ = T.min(T.max(x_,eps),1-eps)
+    x_ = T.clip(x_,eps,1-eps)
+    logp = gammaln(alpha+beta) - gammaln(alpha) - gammaln(beta) + (alpha-1)*T.log(x_) + (beta-1)*T.log(1-x_)
+    return T.sum(logp,axis=axis)
 
 
 def categorical(x,p,axis=-1):

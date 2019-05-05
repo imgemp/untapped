@@ -82,8 +82,9 @@ class SSDGM(BaseEstimator):
         coeff_x=1,coeff_y=0,coeff_x_dis=0,coeff_y_dis=0,coeff_x_prob=0,coeff_y_prob=0,
         batch_size_Xy_train=100,batch_size_X__train=100,batch_size__y_train=100,
         batch_size_Xy_eval=100,batch_size_X__eval=100,batch_size__y_eval=100,
-        num_epochs=10,eval_freq=5,
-        res_out='results/'+timeStamp().format(""),seed=1234,verbose=True,debug=True):
+        num_epochs=10,eval_freq=5,make_plots=None,
+        res_out='results/'+timeStamp().format(""),seed=1234,verbose=True,debug=True,
+        sample_z2s=None,mnist=False,x_is=None):
         """Initialize the model.
         Parameters
         ----------
@@ -173,6 +174,8 @@ class SSDGM(BaseEstimator):
             number of epochs to train model for
         eval_freq : int, optional
             evaluate model every `eval_freq` epochs
+        make_plots : lambda function, optional
+            called to make plots every epoch
         res_out : str, optional
             path to save results to
         seed : int or None, optional
@@ -181,6 +184,12 @@ class SSDGM(BaseEstimator):
             whether to print out objective values during training/fit
         debug : bool, optional
             whether to enter interactive IPython mode when NaN encountered in objective value
+        sample_z2s : function, optional
+            a function to sample from p(z2) with the number of samples as _y
+        mnist : bool, optional
+            whether to interpret data as gray image with pixels as probabilities (just for mnist)
+        x_is: numpy array, optional
+            a 2-d column vector containing the importance sampling weights for each unableled x sample
         """
 
         self._process_inputs(num_features,num_output,model_dict,variational,model_type,iw_samples,eq_samples,
@@ -189,7 +198,7 @@ class SSDGM(BaseEstimator):
             loss_x,loss_y,coeff_x,coeff_y,coeff_x_dis,coeff_y_dis,coeff_x_prob,coeff_y_prob,
             batch_size_Xy_train,batch_size_X__train,batch_size__y_train,
             batch_size_Xy_eval,batch_size_X__eval,batch_size__y_eval,
-            num_epochs,eval_freq,res_out,seed,verbose,debug)
+            num_epochs,eval_freq,make_plots,res_out,seed,verbose,debug,sample_z2s,mnist,x_is)
         self._setup_log_output()
         self._build_net()
         self._add_functionality()
@@ -200,7 +209,7 @@ class SSDGM(BaseEstimator):
             loss_x,loss_y,coeff_x,coeff_y,coeff_x_dis,coeff_y_dis,coeff_x_prob,coeff_y_prob,
             batch_size_Xy_train,batch_size_X__train,batch_size__y_train,
             batch_size_Xy_eval,batch_size_X__eval,batch_size__y_eval,
-            num_epochs,eval_freq,res_out,seed,verbose,debug):
+            num_epochs,eval_freq,make_plots,res_out,seed,verbose,debug,sample_z2s,mnist,x_is):
 
         self.num_features = num_features
         self.num_output = num_output
@@ -245,10 +254,14 @@ class SSDGM(BaseEstimator):
         self.batch_size__y_eval = batch_size__y_eval
         self.num_epochs = num_epochs
         self.eval_freq = eval_freq
+        self.make_plots = make_plots
         self.res_out = res_out
         self.seed = seed
         self.verbose = verbose
         self.debug = debug
+        self.sample_z2s = sample_z2s
+        self.mnist = mnist
+        self.x_is = x_is
 
         code = self._process_inputs.__func__.__code__
         args = code.co_varnames[1:code.co_argcount]
@@ -314,9 +327,12 @@ class SSDGM(BaseEstimator):
         sym_z2 = T.matrix('z2')
         sym_x_sup = T.matrix('x_sup')
         sym_y_sup = T.matrix('y_sup')
+        sym_x_id = T.ivector('x_id')
+        sym_y_id = T.ivector('y_id')
+        sym_xy_id = T.ivector('xy_id')
         temp = T.scalar('temp')
-        sym_names = ['x','y','z1','z2','x_sup','y_sup','eq_samples','iw_samples','temp','lr']
-        syms = [sym_x,sym_y,sym_z1,sym_z2,sym_x_sup,sym_y_sup,sym_eq_samples,sym_iw_samples,temp,sym_lr]
+        sym_names = ['x','y','z1','z2','x_sup','y_sup','eq_samples','iw_samples','temp','lr','x_id','y_id','xy_id']
+        syms = [sym_x,sym_y,sym_z1,sym_z2,sym_x_sup,sym_y_sup,sym_eq_samples,sym_iw_samples,temp,sym_lr,sym_x_id,sym_y_id,sym_xy_id]
         model_dict['sym'] = OrderedDict(zip(sym_names,syms))
 
     def _init_net_archs(self,model_dict):
@@ -441,6 +457,9 @@ class SSDGM(BaseEstimator):
         self.z2 = None
         self._z1 = None
 
+        self._xdp = [None]
+        self.ydp = [None]
+
         # # Track trainable params
         # params = OrderedDict()
 
@@ -470,6 +489,7 @@ class SSDGM(BaseEstimator):
             _x = model_dict['z1->_x']['key_layers'][_x_name]
 
             self._x = _x
+            self._xdp = [model_dict['z1->_x']['key_layers']['l_mu'],model_dict['z1->_x']['key_layers']['l_log_var']]
             # params['M1'] = lasagne.layers.get_all_params([_x],trainable=True)
             # params['z1->_x'] = list(set(params['M1'])-set(params['x->z1']))
 
@@ -482,13 +502,14 @@ class SSDGM(BaseEstimator):
             M2_built = M2(M_input,model_dict,
                           prior_xz1=self.prior_xz1,prior_y=self.prior_y,prior_z2=self.prior_z2,
                           model_type=self.model_type,
-                          loss_x=self.loss_x,loss_y=self.loss_y)
+                          loss_x=self.loss_x,loss_y=self.loss_y,x_is=self.x_is)
         if M2_built:
             n_flows_z1_y = len(model_dict['z1->y']['arch']['flows'])
             y_name = 'l_z' + (n_flows_z1_y > 0)*str(n_flows_z1_y)
             y = model_dict['z1->y']['key_layers'][y_name]
 
             self.y = y
+            self.ydp = [model_dict['z1->y']['key_layers']['l_mu'],model_dict['z1->y']['key_layers']['l_log_var']]
             # params['z1->y'] = lasagne.layers.get_all_params([y],trainable=True)
             # if M1_built:
             #     params['z1->y'] = list(set(params['z1->y'])-set(params['M1']))
@@ -508,6 +529,7 @@ class SSDGM(BaseEstimator):
             _z1 = model_dict['yz2->_z1']['key_layers'][_z1_name]
 
             self._z1 = _z1
+            self._z1dp = [model_dict['yz2->_z1']['key_layers']['l_mu'],model_dict['yz2->_z1']['key_layers']['l_log_var']]
             # params['yz2->_z1'] = lasagne.layers.get_all_params([_z1],trainable=True)
             # params['yz2->_z1'] = list(set(params['yz2->_z1'])-set(params['z1y->z2'])-set(params['z1->y']))
             # if M1_built:
@@ -547,6 +569,7 @@ class SSDGM(BaseEstimator):
             else:
                 self.z1 = self.x
                 self._x = self._z1
+                self._xdp = self._z1dp
 
                 # params['all'] = params['M2']
                 model_dict['params']['all'] = model_dict['params']['M2']
@@ -621,9 +644,15 @@ class SSDGM(BaseEstimator):
         self.get_X = self._make_get_X(model_type,syms)
         self.generate = self.get_X
 
+        # get x distributional parameters
+        self.get_Xdp = self._make_get_Xdp(model_type,syms)
+
         # get y
         self.getY = self._make_getY(model_type,syms)
         self.predict = self.getY
+
+        # get y distributional parameters
+        self.getYdp = self._make_getYdp(model_type,syms)
 
         # get z2
         self.getZ2 = self._make_getZ2(model_type,syms)
@@ -659,7 +688,7 @@ class SSDGM(BaseEstimator):
                                  'getXsup_obj', 'getYsup_obj',
                                  'getXY_obj', 'getYX_obj',
                                  'getX', 'getY', 'getYZ2', 'getZ1', 'getZ2',
-                                 'get_X', 'get_Z1']
+                                 'get_X', 'get_Z1', 'get_Xdp', 'getYdp']
 
 
     def _make_getX_obj(self,model_type,syms):
@@ -692,7 +721,7 @@ class SSDGM(BaseEstimator):
         kwargs = {'givens':{syms['eq_samples']:one,syms['iw_samples']:one},'on_unused_input':'ignore',
                   'name':'getYsup_obj'}
 
-        return theano.function([syms['x_sup'],syms['y_sup']],T.sum(self.obj_y_sup),**kwargs)
+        return theano.function([syms['x_sup'],syms['y_sup'],syms['z2']],T.sum(self.obj_y_sup),**kwargs)
 
     def _make_getXY_obj(self,model_type,syms):
         # note eq and iw samples only used for non-deterministic
@@ -943,6 +972,206 @@ class SSDGM(BaseEstimator):
 
         return get_X
 
+    def _make_get_Xdp(self,model_type,syms):
+        # note eq and iw samples only used for non-deterministic
+        one = np.cast['int32'](1)
+        kwargs = {'givens':{syms['eq_samples']:one,syms['iw_samples']:one},'on_unused_input':'ignore'}
+        
+        from_x_det = lasagne.layers.get_output(self._xdp,inputs={self.x:syms['x']},deterministic=True)
+        from_x_nondet = lasagne.layers.get_output(self._xdp,inputs={self.x:syms['x']},deterministic=False)
+        from_x_det = theano.function([syms['x']],from_x_det,**kwargs)
+        from_x_nondet = theano.function([syms['x']],from_x_nondet,**kwargs)
+
+        from_z1_det = lasagne.layers.get_output(self._xdp,inputs={self.z1:syms['z1']},deterministic=True)
+        from_z1_nondet = lasagne.layers.get_output(self._xdp,inputs={self.z1:syms['z1']},deterministic=False)
+        from_z1_det = theano.function([syms['z1']],from_z1_det,**kwargs)
+        from_z1_nondet = theano.function([syms['z1']],from_z1_nondet,**kwargs)
+
+        if model_type == 0:
+            def get_Xdp(x=None,y=None,z1=None,deterministic=not self.variational):
+                # require input
+                assert not (x is None and y is None and z1 is None), 'S2S_DGM msg: Must provide an input for x or y/z1.'
+
+                # check z1/y relationship
+                if z1 is None:
+                    z1 = y
+                elif y is not None:
+                    assert np.allclose(z1,y), 'S2S_DGM msg: z1 and y are the same variable - getX expecting the same value.'
+
+                # priority given to y/z1 - assuming better reconstruction possible
+                if z1 is not None:
+                    if deterministic:
+                        return from_z1_det(z1)
+                    else:
+                        return from_z1_nondet(z1)
+                else:
+                    if deterministic:
+                        return from_x_det(x)
+                    else:
+                        return from_x_nondet(x)
+
+        elif model_type in [1,2]:
+            # to get from y & z2
+            # get _z1 from y&z2
+            _z1_from_yz2_det = lasagne.layers.get_output(self._z1,inputs={self.y:syms['y'],self.z2:syms['z2']},deterministic=True)
+            _z1_from_yz2_nondet = lasagne.layers.get_output(self._z1,inputs={self.y:syms['y'],self.z2:syms['z2']},deterministic=False)
+            # get _xdp from _z1
+            _xdp_from__z1_det = lasagne.layers.get_output(self._xdp,inputs={self.z1:_z1_from_yz2_det},deterministic=True)
+            _xdp_from__z1_nondet = lasagne.layers.get_output(self._xdp,inputs={self.z1:_z1_from_yz2_nondet},deterministic=False)
+            # rename
+            from_yz2_det = _xdp_from__z1_det
+            from_yz2_nondet = _xdp_from__z1_nondet
+            from_yz2_det = theano.function([syms['y'],syms['z2']],from_yz2_det,**kwargs)
+            from_yz2_nondet = theano.function([syms['y'],syms['z2']],from_yz2_nondet,**kwargs)
+            
+            if model_type == 1:
+                # to get from x & y
+                # get z1 from x,
+                z1_from_x_det = lasagne.layers.get_output(self.z1,inputs={self.x:syms['x']},deterministic=True)
+                z1_from_x_nondet = lasagne.layers.get_output(self.z1,inputs={self.x:syms['x']},deterministic=False)
+                # then get z2 from z1&y,
+                z2_from_z1y_det = lasagne.layers.get_output(self.z2,inputs={self.z1:z1_from_x_det,self.y:syms['y']},deterministic=True)
+                z2_from_z1y_nondet = lasagne.layers.get_output(self.z2,inputs={self.z1:z1_from_x_nondet,self.y:syms['y']},deterministic=False)
+                # then get _x/_z1 from y&z2
+                _xdp_from_yz2_det = lasagne.layers.get_output(self._xdp,inputs={self.y:syms['y'],self.z2:z2_from_z1y_det},deterministic=True)
+                _xdp_from_yz2_nondet = lasagne.layers.get_output(self._xdp,inputs={self.y:syms['y'],self.z2:z2_from_z1y_nondet},deterministic=False)
+                # rename
+                from_xy_det = _xdp_from_yz2_det
+                from_xy_nondet = _xdp_from_yz2_nondet
+                from_xy_det = theano.function([syms['x'],syms['y']],from_xy_det,**kwargs)
+                from_xy_nondet = theano.function([syms['x'],syms['y']],from_xy_nondet,**kwargs)
+
+                # to get from z1 & y
+                # get z2 from z1&y,
+                z2_from_z1y_det = lasagne.layers.get_output(self.z2,inputs={self.z1:syms['z1'],self.y:syms['y']},deterministic=True)
+                z2_from_z1y_nondet = lasagne.layers.get_output(self.z2,inputs={self.z1:syms['z1'],self.y:syms['y']},deterministic=False)
+                # then get _x/_z1 from y&z2
+                _xdp_from_yz2_det = lasagne.layers.get_output(self._xdp,inputs={self.y:syms['y'],self.z2:z2_from_z1y_det},deterministic=True)
+                _xdp_from_yz2_nondet = lasagne.layers.get_output(self._xdp,inputs={self.y:syms['y'],self.z2:z2_from_z1y_nondet},deterministic=False)
+                # rename
+                from_z1y_det = _xdp_from_yz2_det
+                from_z1y_nondet = _xdp_from_yz2_nondet
+                from_z1y_det = theano.function([syms['z1'],syms['y']],from_z1y_det,**kwargs)
+                from_z1y_nondet = theano.function([syms['z1'],syms['y']],from_z1y_nondet,**kwargs)
+
+                # to get from x & z2
+                # get z1 from x,
+                z1_from_x_det = lasagne.layers.get_output(self.z1,inputs={self.x:syms['x']},deterministic=True)
+                z1_from_x_nondet = lasagne.layers.get_output(self.z1,inputs={self.x:syms['x']},deterministic=False)
+                # then get y from z1,
+                y_from_z1_det = lasagne.layers.get_output(self.y,inputs={self.z1:z1_from_x_det},deterministic=True)
+                y_from_z1_nondet = lasagne.layers.get_output(self.y,inputs={self.z1:z1_from_x_nondet},deterministic=False)
+                # then get _x/_z1 from y&z2
+                _xdp_from_yz2_det = lasagne.layers.get_output(self._xdp,inputs={self.y:y_from_z1_det,self.z2:syms['z2']},deterministic=True)
+                _xdp_from_yz2_nondet = lasagne.layers.get_output(self._xdp,inputs={self.y:y_from_z1_nondet,self.z2:syms['z2']},deterministic=False)
+                # rename
+                from_xz2_det = _xdp_from_yz2_det
+                from_xz2_nondet = _xdp_from_yz2_nondet
+                from_xz2_det = theano.function([syms['x'],syms['z2']],from_xz2_det,**kwargs)
+                from_xz2_nondet = theano.function([syms['x'],syms['z2']],from_xz2_nondet,**kwargs)
+
+                # to get from z1 & z2
+                # get y from z1,
+                y_from_z1_det = lasagne.layers.get_output(self.y,inputs={self.z1:syms['z1']},deterministic=True)
+                y_from_z1_nondet = lasagne.layers.get_output(self.y,inputs={self.z1:syms['z1']},deterministic=False)
+                # then get _x from _z1
+                _xdp_from__z1_det = lasagne.layers.get_output(self._xdp,inputs={self.z1:_z1_from_yz2_det},deterministic=True)
+                _xdp_from__z1_nondet = lasagne.layers.get_output(self._xdp,inputs={self.z1:_z1_from_yz2_nondet},deterministic=False)
+                # then get _x from y&z2
+                _xdp_from_yz2_det = lasagne.layers.get_output(self._xdp,inputs={self.y:y_from_z1_det,self.z2:syms['z2']},deterministic=True)
+                _xdp_from_yz2_nondet = lasagne.layers.get_output(self._xdp,inputs={self.y:y_from_z1_nondet,self.z2:syms['z2']},deterministic=False)
+                # rename
+                from_z1z2_det = _xdp_from_yz2_det
+                from_z1z2_nondet = _xdp_from_yz2_nondet
+                from_z1z2_det = theano.function([syms['z1'],syms['z2']],from_z1z2_det,**kwargs)
+                from_z1z2_nondet = theano.function([syms['z1'],syms['z2']],from_z1z2_nondet,**kwargs)
+
+                def get_Xdp(x=None,y=None,z1=None,z2=None,deterministic=not self.variational):
+                    given = (x is not None, y is not None, z1 is not None, z2 is not None)
+                    given = tuple([int(g) for g in given])
+                    allowed = set([(1,0,0,0),(0,0,1,0),(1,1,0,0),(0,1,1,0),(1,0,0,1),(0,0,1,1),(0,1,0,1)])
+                    assert given in allowed, 'S2S_DGM msg: Input ' + repr(given) + ' is not an allowed pairing. [x,y,z1,z2] in ' + repr(allowed)
+
+                    if given == (1,0,0,0):
+                        if deterministic:
+                            return from_x_det(x)
+                        else:
+                            return from_x_nondet(x)
+                    elif given == (0,0,1,0):
+                        if deterministic:
+                            return from_z1_det(z1)
+                        else:
+                            return from_z1_nondet(z1)
+                    elif given == (1,1,0,0):
+                        if deterministic:
+                            return from_xy_det(x,y)
+                        else:
+                            return from_xy_nondet(x,y)
+                    elif given == (0,1,1,0):
+                        if deterministic:
+                            return from_z1y_det(z1,y)
+                        else:
+                            return from_z1y_nondet(z1,y)
+                    elif given == (1,0,0,1):
+                        if deterministic:
+                            return from_xz2_det(x,z2)
+                        else:
+                            return from_xz2_nondet(x,z2)
+                    elif given == (0,0,1,1):
+                        if deterministic:
+                            return from_z1z2_det(z1,z2)
+                        else:
+                            return from_z1z2_nondet(z1,z2)
+                    elif given == (0,1,0,1):
+                        if deterministic:
+                            return from_yz2_det(y,z2)
+                        else:
+                            return from_yz2_nondet(y,z2)
+            else:
+                def get_Xdp(x=None,y=None,z1=None,z2=None,deterministic=not self.variational):
+                    given = (x is not None, y is not None, z1 is not None, z2 is not None)
+                    given = tuple([int(g) for g in given])
+                    allowed = set([(1,0,0,0),(0,0,1,0),(1,1,0,0),(0,1,1,0),(1,0,0,1),(0,0,1,1),(0,1,0,1)])
+                    assert given in allowed, 'S2S_DGM msg: Input ' + repr(given) + ' is not an allowed pairing. [x,y,z1,z2] in ' + repr(allowed)
+
+                    if given == (1,0,0,0):
+                        if deterministic:
+                            return from_x_det(x)
+                        else:
+                            return from_x_nondet(x)
+                    elif given == (0,0,1,0):
+                        if deterministic:
+                            return from_z1_det(z1)
+                        else:
+                            return from_z1_nondet(z1)
+                    elif given == (1,1,0,0):
+                        if deterministic:
+                            return from_x_det(x)
+                        else:
+                            return from_x_nondet(x)
+                    elif given == (0,1,1,0):
+                        if deterministic:
+                            return from_z1_det(z1)
+                        else:
+                            return from_z1_nondet(z1)
+                    elif given == (1,0,0,1):
+                        if deterministic:
+                            return from_x_det(x)
+                        else:
+                            return from_x_nondet(x)
+                    elif given == (0,0,1,1):
+                        if deterministic:
+                            return from_z1_det(z1)
+                        else:
+                            return from_z1_nondet(z1)
+                    elif given == (0,1,0,1):
+                        if deterministic:
+                            return from_yz2_det(y,z2)
+                        else:
+                            return from_yz2_nondet(y,z2)
+
+        return get_Xdp
+
     def _make_getY(self,model_type,syms):
         # note eq and iw samples only used for non-deterministic
         one = np.cast['int32'](1)
@@ -993,6 +1222,57 @@ class SSDGM(BaseEstimator):
                         return from_x_nondet(x)
 
         return getY
+
+    def _make_getYdp(self,model_type,syms):
+        # note eq and iw samples only used for non-deterministic
+        one = np.cast['int32'](1)
+        kwargs = {'givens':{syms['eq_samples']:one,syms['iw_samples']:one},'on_unused_input':'ignore'}
+        
+        if model_type == 0:
+            from_x_det = lasagne.layers.get_output(self.z1,inputs={self.x:syms['x']},deterministic=True)
+            from_x_nondet = lasagne.layers.get_output(self.z1,inputs={self.x:syms['x']},deterministic=False)
+            from_x_det = theano.function([syms['x']],from_x_det,**kwargs)
+            from_x_nondet = theano.function([syms['x']],from_x_nondet,**kwargs)
+
+            def getYdp(x=None,deterministic=not self.variational):
+                '''
+                Treats z1 as y in M1 model.
+                '''
+                # require input
+                assert x is not None, 'S2S_DGM msg: Must provide an input for x.'
+
+                if deterministic:
+                    return from_x_det(x)
+                else:
+                    return from_x_nondet(x)
+        else:
+            # from x
+            from_x_det = lasagne.layers.get_output(self.ydp,inputs={self.x:syms['x']},deterministic=True)
+            from_x_nondet = lasagne.layers.get_output(self.ydp,inputs={self.x:syms['x']},deterministic=False)
+            from_x_det = theano.function([syms['x']],from_x_det,name='get_y_from_x_det',**kwargs)
+            from_x_nondet = theano.function([syms['x']],from_x_nondet,**kwargs)
+
+            # from z1
+            from_z1_det = lasagne.layers.get_output(self.ydp,inputs={self.z1:syms['z1']},deterministic=True)
+            from_z1_nondet = lasagne.layers.get_output(self.ydp,inputs={self.z1:syms['z1']},deterministic=False)
+            from_z1_det = theano.function([syms['z1']],from_z1_det,**kwargs)
+            from_z1_nondet = theano.function([syms['z1']],from_z1_nondet,name='getY_from_z1_nondet',**kwargs)
+
+            def getYdp(x=None,z1=None,deterministic=not self.variational):
+                assert not (x is None and z1 is None), 'S2S_DGM msg: Must provide an input for x or z1.'
+
+                if z1 is not None:
+                    if deterministic:
+                        return from_z1_det(z1)
+                    else:
+                        return from_z1_nondet(z1)
+                else:
+                    if deterministic:
+                        return from_x_det(x)
+                    else:
+                        return from_x_nondet(x)
+
+        return getYdp
 
     def _make_getZ2(self,model_type,syms):
         # note eq and iw samples only used for non-deterministic
@@ -1222,6 +1502,12 @@ class SSDGM(BaseEstimator):
         if (_y is None or z2 is None) and ('_y' in self.default_data and 'z2' in self.default_data):
             _y = self.default_data['_y']
             z2 = self.default_data['z2']
+        self.X = X
+        self.y = y
+        self.X_ = X_
+        self._y = _y
+        self.z2 = z2
+
 
         if params is None:
             params = self.model_dict['params']['all']
@@ -1318,7 +1604,7 @@ class SSDGM(BaseEstimator):
         if params is None:
             params = self.model_dict['params']['all']
         self._build_objectives(self.model_dict,typ=typ,X=X,y=y,X_=X_,_y=_y,z2=z2,
-                           X_valid=X_valid,y_valid=y_valid,X__valid=X__valid,_y_valid=_y_valid,z2_valid=z2_valid)
+                               X_valid=X_valid,y_valid=y_valid,X__valid=X__valid,_y_valid=_y_valid,z2_valid=z2_valid)
         grads = self._derive_gradient(params,typ=typ)
         self._grads = grads
         self._updates = self._build_updates(params,grads)
@@ -1328,20 +1614,22 @@ class SSDGM(BaseEstimator):
         model_dict['objs'][typ]['train'] = 0
         model_dict['objs'][typ]['eval'] = 0
 
+        # model_dict['objs'][typ]['train'] += 1e-1*T.sum([(act-.05)**2. for act in model_dict['objs']['act']])
+
         if not (X is None or y is None):
             if self.coeff_x_prob > 0 and typ != 'nonvar':
-                model_dict['objs'][typ]['train'] += self.coeff_x*T.sum(self.obj_x_sup)
+                model_dict['objs'][typ]['train'] += self.coeff_x_prob*T.sum(self.obj_x_sup)
             if self.coeff_y_prob > 0 and typ != 'nonvar':
-                model_dict['objs'][typ]['train'] += self.coeff_y*T.sum(self.obj_y_sup)
+                model_dict['objs'][typ]['train'] += self.coeff_y_prob*T.sum(self.obj_y_sup)
             if self.coeff_x_dis > 0:
                 model_dict['objs'][typ]['train'] += self.coeff_x_dis*T.sum(self.obj_x_sup_dis)
             if self.coeff_y_dis > 0:
                 model_dict['objs'][typ]['train'] += self.coeff_y_dis*T.sum(self.obj_y_sup_dis)
         if not (X_valid is None or y_valid is None):
             if self.coeff_x_prob > 0 and typ != 'nonvar':
-                model_dict['objs'][typ]['eval'] += self.coeff_x*T.sum(self.obj_x_sup)
+                model_dict['objs'][typ]['eval'] += self.coeff_x_prob*T.sum(self.obj_x_sup)
             if self.coeff_y_prob > 0 and typ != 'nonvar':
-                model_dict['objs'][typ]['eval'] += self.coeff_y*T.sum(self.obj_y_sup)
+                model_dict['objs'][typ]['eval'] += self.coeff_y_prob*T.sum(self.obj_y_sup)
             if self.coeff_x_dis > 0:
                 model_dict['objs'][typ]['eval'] += self.coeff_x_dis*T.sum(self.obj_x_sup_dis)
             if self.coeff_y_dis > 0:
@@ -1362,7 +1650,8 @@ class SSDGM(BaseEstimator):
     def _derive_gradient(self,params=None,typ='nonvar'):
         if params is None:
             params = self.model_dict['params']['all']
-        grads = T.grad(self.model_dict['objs'][typ]['train'],params,disconnected_inputs='ignore')
+        l2 = 0  # sum([T.sum(p**2.) for p in params])
+        grads = T.grad(self.model_dict['objs'][typ]['train']+0.5*l2,params,disconnected_inputs='ignore')
         return grads
 
     def _build_updates(self,params,grads,clip_grad=1.,max_norm=5.):
@@ -1378,12 +1667,13 @@ class SSDGM(BaseEstimator):
         shared = []
         for datum in [X,y,X_,_y,z2]:
             if datum is None:
-                data += [datum]
-                shared += [datum]
+                data += [(datum,None)]
+                shared += [(datum,None)]
             else:
                 datum_casted = datum.astype(theano.config.floatX)
-                data += [datum_casted]
-                shared += [theano.shared(datum_casted,borrow=True)]
+                datum_indices = np.arange(datum_casted.shape[0]).astype('int32')
+                data += [(datum_casted,datum_indices)]
+                shared += [(theano.shared(datum_casted,borrow=True),theano.shared(datum_indices,borrow=True))]
         if not validation:
             sh_temp = theano.shared(np.cast[theano.config.floatX](0.),borrow=True)
             shared += [sh_temp]
@@ -1438,12 +1728,14 @@ class SSDGM(BaseEstimator):
 
     def _init_givens(self,model_dict,data,shared,sym_suffix='_train'):
         keys = ['x_sup','y_sup','x','y','z2']
+        id_keys = ['xy_id','xy_id','x_id','y_id','y_id']
         syms = model_dict['sym']
 
         givens = {}
-        for key,d,sh in zip(keys,data,shared[:5]):
-            if sh is not None:
-                givens.update({syms[key]:self._get_slice(d,sh,key,syms,sym_suffix)})
+        for key,id_key,d,sh in zip(keys,id_keys,data,shared[:5]):
+            if sh[0] is not None:
+                givens.update({syms[key]:self._get_slice(d[0],sh[0],key,syms,sym_suffix)})
+                givens.update({syms[id_key]:self._get_slice(d[1],sh[1],id_key,syms,sym_suffix)})
 
         if len(shared) > 5:
             sh_temp = shared[5]
@@ -1456,11 +1748,11 @@ class SSDGM(BaseEstimator):
         sym_index = syms['index'+sym_suffix]
 
         # retrieve corresponding batch size
-        if sym in ('x_sup','y_sup'):
+        if sym in ('x_sup','y_sup','xy_id'):
             sym_batch_size = syms['batch_size_Xy'+sym_suffix]
-        elif sym == 'x':
+        elif sym == 'x' or sym == 'x_id':
             sym_batch_size = syms['batch_size_X_'+sym_suffix]
-        elif sym in ('y','z2'):
+        elif sym in ('y','z2','y_id'):
             sym_batch_size = syms['batch_size__y'+sym_suffix]
         else:
             raise ValueError('S2S_DGM msg: symbol '+str(sym)+' is not a valid option')
@@ -1469,9 +1761,13 @@ class SSDGM(BaseEstimator):
         start = sym_index * sym_batch_size % N_samples
         end = T.clip(start + sym_batch_size, 0, N_samples)
         q,r = divmod(sym_batch_size-(end-start), N_samples)
+        if 'id' in sym:
+            tile_shape = (q,)
+        else:
+            tile_shape = (q,1)
         # theano doesn't support tiling `0` times, so need ifelse
         batch = ifelse(T.gt(q,0),
-                       T.concatenate([sh[slice(start,end)]]+[T.tile(sh,(q,1))]+[sh[slice(0,r)]]),
+                       T.concatenate([sh[slice(start,end)]]+[T.tile(sh,tile_shape)]+[sh[slice(0,r)]]),
                        T.concatenate([sh[slice(start,end)]]+[sh[slice(0,r)]]),
                        name=sym+sym_suffix)
 
@@ -1497,11 +1793,11 @@ class SSDGM(BaseEstimator):
                                                          deterministic=True,collect=True)
             if not (X_ is None and X is None):
                 if X is None:
-                    N_samples = int(min(10*self.batch_size_X__train,data_train[2].shape[0]))
-                    batch_X = shared_train[2][:N_samples]
+                    N_samples = int(min(10*self.batch_size_X__train,data_train[2][0].shape[0]))
+                    batch_X = shared_train[2][0][:N_samples]
                 else:
-                    N_samples = int(min(10*self.batch_size_Xy_train,data_train[0].shape[0]))
-                    batch_X = shared_train[0][:N_samples]
+                    N_samples = int(min(10*self.batch_size_Xy_train,data_train[0][0].shape[0]))
+                    batch_X = shared_train[0][0][:N_samples]
                 return theano.function([model_dict['sym']['eq_samples'],model_dict['sym']['iw_samples']],
                                        self.collect_out,
                                        givens={model_dict['sym']['x']: batch_X})
@@ -1551,6 +1847,7 @@ class SSDGM(BaseEstimator):
                         print('NaN encountered in ('+process_type+') cost!')
                     if self.debug:
                         embed()
+                        # print(self.getYsup_obj(self.X,self.y))
 
                 results = OrderedDict()
                 for key in reports:
@@ -1579,8 +1876,8 @@ class SSDGM(BaseEstimator):
 
             sh_temp = shared_train[-1]
 
-            N_Xy_train, N_X__train, N__y_train = [None if data_train[i] is None else data_train[i].shape[0] for i in [0,2,3]]
-            N_Xy_eval, N_X__eval, N__y_eval = [None if data_valid[i] is None else data_valid[i].shape[0] for i in [0,2,3]]
+            N_Xy_train, N_X__train, N__y_train = [None if data_train[i][0] is None else data_train[i][0].shape[0] for i in [0,2,3]]
+            N_Xy_eval, N_X__eval, N__y_eval = [None if data_valid[i][0] is None else data_valid[i][0].shape[0] for i in [0,2,3]]
 
             # init records
             train_record = self._init_record(reports_train)
@@ -1588,7 +1885,7 @@ class SSDGM(BaseEstimator):
             evalN_record = self._init_record(reports_eval)
 
             xepochs = []
-            for epoch in range(1, 1+self.num_epochs):
+            for epoch in range(0, 1+self.num_epochs):
                 t0 = time.time()
 
                 self._shuffle_data(data_train,shared_train)
@@ -1650,6 +1947,9 @@ class SSDGM(BaseEstimator):
 
                     self._save_plots(xepochs,train_record,eval1_record,evalN_record)
 
+                    if self.make_plots is not None:
+                        self.make_plots(self)
+
             self.train_record = train_record
             self.eval1_record = eval1_record
             self.evalN_record = evalN_record
@@ -1662,27 +1962,49 @@ class SSDGM(BaseEstimator):
 
     def _shuffle_data(self,data,shared):
         # data: [X,y,X_,_y,z2]
-        if data[0] is not None:
-            indices_Xy = np.arange(data[0].shape[0])
+        if data[0][0] is not None:
+            indices_Xy = np.arange(data[0][0].shape[0]).astype('int32')
             np.random.shuffle(indices_Xy)
-        elif data[1] is not None:
-            indices_Xy = np.arange(data[1].shape[0])
+        elif data[1][0] is not None:
+            indices_Xy = np.arange(data[1][0].shape[0]).astype('int32')
             np.random.shuffle(indices_Xy)
-        if data[3] is not None:
-            indices__yz2 = np.arange(data[3].shape[0])
+        if data[2][0] is not None:
+            indices__X = np.arange(data[2][0].shape[0]).astype('int32')
+            np.random.shuffle(indices__X)
+        if data[3][0] is not None:
+            indices__yz2 = np.arange(data[3][0].shape[0]).astype('int32')
             np.random.shuffle(indices__yz2)
-        elif data[4] is not None:
-            indices__yz2 = np.arange(data[4].shape[0])
+        elif data[4][0] is not None:
+            indices__yz2 = np.arange(data[4][0].shape[0]).astype('int32')
             np.random.shuffle(indices__yz2)
         for idx,datum in enumerate(data):
+            datum, idxs = datum
             if datum is not None:
                 if idx in [0,1]:
-                    shared[idx].set_value(datum[indices_Xy])
+                    if idx == 0 and self.mnist:
+                        datum_shuffled = self._sample_bernoulli_image(datum[indices_Xy])
+                    else:
+                        datum_shuffled = datum[indices_Xy]
+                    shared[idx][0].set_value(datum_shuffled)
+                    shared[idx][1].set_value(indices_Xy)
                 elif idx in [3,4]:
-                    shared[idx].set_value(datum[indices__yz2])
+                    if idx == 4 and self.sample_z2s:
+                        shared[idx][0].set_value(self.sample_z2s())
+                    else:
+                        shared[idx][0].set_value(datum[indices__yz2])
+                    shared[idx][1].set_value(indices__yz2)
                 else:
-                    np.random.shuffle(datum)
-                    shared[idx].set_value(datum)
+                    # np.random.shuffle(datum)
+                    datum_shuffled = datum[indices__X]
+                    if self.mnist:
+                        shared[idx][0].set_value(self._sample_bernoulli_image(datum_shuffled))
+                    else:
+                        shared[idx][0].set_value(datum_shuffled)
+                    shared[idx][1].set_value(indices__X)
+
+    def _sample_bernoulli_image(self,data):
+        sample = np.random.rand(*data.shape)
+        return (data > sample).astype(theano.config.floatX)
 
     def _log(self,epoch,t,lr,eq_samples,iw_samples,train_out,eval1_out,evalN_out):
         epoch_format = "\n*Epoch=%d\tTime=%.2f\tLR=%.5f\teq_samples=%d\t" + \
@@ -1708,38 +2030,52 @@ class SSDGM(BaseEstimator):
             f.write(logout)
 
     def _save_plots(self,xepochs,train_record,eval1_record,evalN_record):
+        fs = 24
+        fs_tick = 18
+
         plt.figure(figsize=[12,12])
+        line_styles = itertools.cycle(('-','--',':','-.'))
         for key,val in train_record.items():
             if not isinstance(val[0],np.ndarray):
-                plt.plot(xepochs,val,'o-',label=key)
-        plt.xlabel('Epochs')
-        plt.ylabel('log()')
+                label = key
+                if val[-1] < 0:
+                    label = '-'+label
+                plt.semilogy(xepochs,np.abs(val),'o',linestyle=line_styles.__next__(),label=label)
+                # plt.plot(xepochs,val,'o',linestyle=line_styles.__next__(),label=key)
+        plt.xlabel('Epochs',fontsize=fs)
+        plt.ylabel('log()',fontsize=fs)
         plt.grid('on')
-        plt.title('Train')
-        lgd = plt.legend(loc='center left',bbox_to_anchor=(1.05, 1))
+        plt.title('Train',fontsize=fs)
+        plt.tick_params(labelsize=fs_tick)
+        lgd = plt.legend(loc='center left',bbox_to_anchor=(1.05, 1),fontsize=fs)
         plt.savefig(self.res_out+'/train.png',additional_artists=[lgd],bbox_inches='tight')
         plt.close()
 
         plt.figure(figsize=[12,12])
+        line_styles = itertools.cycle(('-','--',':','-.'))
         for key,val in eval1_record.items():
             if not isinstance(val[0],np.ndarray):
-                plt.plot(xepochs,val,'o-',label=key)
-        plt.xlabel('Epochs')
-        plt.ylabel('log()')
+                plt.plot(xepochs,val,'o',linestyle=line_styles.__next__(),label=key)
+        plt.xlabel('Epochs',fontsize=fs)
+        plt.ylabel('log()',fontsize=fs)
         plt.grid('on')
-        plt.title('Eval L1')
-        lgd = plt.legend(loc='center left',bbox_to_anchor=(1.05, 1))
+        plt.title('Eval L1',fontsize=fs)
+        plt.tick_params(labelsize=fs_tick)
+        lgd = plt.legend(loc='center left',bbox_to_anchor=(1.05, 1),fontsize=fs)
         plt.savefig(self.res_out+'/eval_L1.png',additional_artists=[lgd],bbox_inches='tight')
         plt.close()
 
         plt.figure(figsize=[12,12])
+        line_styles = itertools.cycle(('-','--',':','-.'))
         for key,val in evalN_record.items():
             if not isinstance(val[0],np.ndarray):
-                plt.plot(xepochs,val,'o-',label=key)
-        plt.xlabel('Epochs')
-        plt.ylabel('log()'), plt.grid('on')
-        plt.title('Eval LN')
-        lgd = plt.legend(loc='center left',bbox_to_anchor=(1.05, 1))
+                plt.plot(xepochs,val,'o',linestyle=line_styles.__next__(),label=key)
+        plt.xlabel('Epochs',fontsize=fs)
+        plt.ylabel('log()',fontsize=fs)
+        plt.grid('on')
+        plt.title('Eval LN',fontsize=fs)
+        plt.tick_params(labelsize=fs_tick)
+        lgd = plt.legend(loc='center left',bbox_to_anchor=(1.05, 1),fontsize=fs)
         plt.savefig(self.res_out+'/eval_LN.png',additional_artists=[lgd],bbox_inches='tight')
         plt.close()
 

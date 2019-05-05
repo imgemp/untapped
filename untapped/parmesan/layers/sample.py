@@ -236,6 +236,7 @@ class BernoulliSampleLayer(lasagne.layers.Layer):
             ones = T.ones(shp,dtype=theano.config.floatX)
             zeros = T.zeros(shp,dtype=theano.config.floatX)
             samples = T.switch(mu_shp>=0.5,ones,zeros)
+            # samples = mu_shp
         else:
             samples = self._srng.binomial(
                 size=shp, p=mu_shp, dtype=theano.config.floatX)
@@ -378,12 +379,14 @@ class ConcreteSampleLayer(lasagne.layers.Layer):
     def __init__(self, logits,
                  eq_samples=1,
                  iw_samples=1,
+                 T=1.,
                  seed=lasagne.random.get_rng().randint(1, 2147462579),
                   **kwargs):
         super(ConcreteSampleLayer, self).__init__(logits, **kwargs)
 
         self.eq_samples = eq_samples
         self.iw_samples = iw_samples
+        self.T = T
 
         self._srng = RandomStreams(seed)
 
@@ -414,6 +417,6 @@ class ConcreteSampleLayer(lasagne.layers.Layer):
             gumbel_sample = -T.log(-T.log(U + 1e-4) + 1e-4)
             y = logits.dimshuffle(0,'x','x',1) + gumbel_sample
             y_reshaped = y.reshape((-1,num_latent))
-            z_reshaped = T.nnet.softmax( y_reshaped / 1)
+            z_reshaped = T.nnet.softmax( y_reshaped / self.T)
 
         return z_reshaped
