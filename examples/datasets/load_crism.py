@@ -27,7 +27,7 @@ def get_data(dataset='examples/datasets/crism/crism.pkl.gz'):
     return x, y, names, colors
 
 
-def load_process_data(remove_mean=True,plot=False):
+def load_process_data(remove_mean=True,plot=False,yu_corners=True,xu_center=True):
     x, y, names, colors = get_data()
     assert np.allclose(y.sum(axis=1), 1.)
     n = y.shape[1]
@@ -57,12 +57,22 @@ def load_process_data(remove_mean=True,plot=False):
     x_valid = x
     y_valid = y
 
-    x_unsup = x_sup
+    if xu_center:
+        x_unsup = x_sup
+    else:
+        x_unsup = np.array(x)
+        np.random.shuffle(x_unsup)
+        x_unsup = x_unsup[:x_sup.shape[0]]
 
-    y_unsup1 = np.random.rand(167, 2) * 0.05
-    y_unsup2 = np.hstack((y_unsup1[:, 0, None], 1. - y_unsup1.sum(axis=1)[None].T))
-    y_unsup3 = np.hstack((1. - y_unsup1.sum(axis=1)[None].T, y_unsup1[:, 1, None]))
-    y_unsup = np.vstack((y_unsup1, y_unsup2, y_unsup3))
+    if yu_corners:
+        y_unsup1 = np.random.rand(167, 2) * 0.05
+        y_unsup2 = np.hstack((y_unsup1[:, 0, None], 1. - y_unsup1.sum(axis=1)[None].T))
+        y_unsup3 = np.hstack((1. - y_unsup1.sum(axis=1)[None].T, y_unsup1[:, 1, None]))
+        y_unsup = np.vstack((y_unsup1, y_unsup2, y_unsup3))
+    else:
+        y_unsup = y[~in_center]
+        np.random.shuffle(y_unsup)
+        y_unsup = y_unsup[:167*3]
 
     if plot:
         fig = plt.figure()

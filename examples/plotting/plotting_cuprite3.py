@@ -21,12 +21,13 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     y_corners = np.vstack((np.eye(data['y'].shape[1]),np.zeros(data['y'].shape[1]))).astype('float32')
 
     simplex = []
-    for point in product(*([np.linspace(0,1,50)]*y.shape[1])):
+    print('start simplex')
+    for point in product(*([np.linspace(0,1,5)]*y.shape[1])):
         if np.sum(point) == 1:
             simplex += [point]
     simplex = np.asarray(simplex).astype('float32')
     simplex = simplex[:,:-1]
-
+    print('end simplex')
     if waves is None:
         waves = np.arange(data['X'].shape[1])
 
@@ -217,11 +218,12 @@ def make_plots(m,data,colors,names,groundtruth=None,waves=None,sample_size=10,ux
     plt.savefig(res_out+'/endmembers_means_with_groundtruth.png',additional_artists=[lgd],bbox_inches='tight')
     plt.close()
 
-    plt.plot(waves,manifold.T,color='lightgray',lw=1,alpha=0.1,zorder=3)
-    plt.plot(waves,f(_ux+data['X_valid']).T,color='m',lw=1,alpha=0.1,zorder=1)
+    print(manifold.shape)
+    print(simplex.shape)
+    plt.plot(waves,manifold.T,color='lightgray',lw=6,alpha=0.1)
     for endmember, color, name in zip(groundtruth,colors,names):
-        plt.plot(waves,endmember[:len(waves)],color=color,lw=6,alpha=1.0,zorder=2)
-    plt.title('Spectral Manifold Test', fontsize=fs)
+        plt.plot(waves,endmember[:len(waves)],color=color,lw=2,alpha=1.0)
+    plt.title('Spectral Manifold', fontsize=fs)
     plt.xlabel('Channels', fontsize=fs)
     plt.ylabel('Intensities', fontsize=fs)
     plt.tick_params(axis='both', which='major', labelsize=fs_tick)

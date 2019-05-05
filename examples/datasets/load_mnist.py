@@ -110,6 +110,7 @@ def load_data(dataset='examples/datasets/mnist/mnist.pkl.gz',remove_mean=False,c
     train_x, train_y = train_set
 
     x = np.vstack((valid_x,test_x,train_x))
+    # x = 1-x  # black background (0's) with white digits (1's)
     if binary:
         x = np.round(x)
 

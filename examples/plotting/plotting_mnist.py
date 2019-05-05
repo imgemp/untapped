@@ -1,3 +1,5 @@
+import os
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -9,7 +11,10 @@ import numpy as np
 from IPython import embed
 
 
-def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out='',cat=True,title=None):
+def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out='',cat=True,title=None,num_digits=None):
+    if not os.path.exists(res_out):
+        os.makedirs(res_out)
+
     inds_sup_train = np.random.choice(data['X'].shape[0],size=sample_size)
     inds_sup_valid = np.random.choice(data['X_valid'].shape[0],size=sample_size)
     inds_train_x = np.random.choice(data['X_'].shape[0],size=sample_size)
@@ -51,12 +56,14 @@ def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out=
     else:
         pred_train = np.hstack([pred_train,1-pred_train.sum(axis=1,keepdims=True)])
     score_pred_train = KL(pred_train,y)
+    acc_pred_train = acc(pred_train,y)
     pred_valid = m.predict(x=data['X_valid'],deterministic=True)
     if cat:
         pred_valid = (pred_valid.T/np.sum(pred_valid,axis=1)).T
     else:
         pred_valid = np.hstack([pred_valid,1-pred_valid.sum(axis=1,keepdims=True)])
     score_pred_valid = KL(pred_valid,y_valid)
+    acc_pred_valid = acc(pred_valid,y_valid)
     if m.model_type in [1,2]:
         z2_train = m.getZ2(x=data['X'],y=data['y'],deterministic=True)
         z2_valid = m.getZ2(x=data['X_valid'],y=data['y_valid'],deterministic=True)
@@ -90,7 +97,7 @@ def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out=
     # change xticks to be names
     p = 100
     plt.plot(p*y[inds_sup_train][0],'k',lw=2,label='Ground Truth')
-    ssdgm_label = 'SSDGM ({:.3f})'.format(score_pred_train)
+    ssdgm_label = 'SSDGM ({:.3f},{:.3f})'.format(acc_pred_train,score_pred_train)
     plt.plot(p*pred_train[inds_sup_train][0],'r-.',lw=2,label=ssdgm_label)
     # pls_label = 'PLS ({:.3f})'.format(score_pred_train_pls)
     # plt.plot(p*pred_train_pls[inds_sup_train][0],'b-.',lw=2,label=pls_label)
@@ -110,7 +117,7 @@ def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out=
     plt.close()
 
     plt.plot(p*y_valid[inds_sup_valid][0],'k',lw=2,label='Ground Truth')
-    ssdgm_label = 'SSDGM ({:.3f})'.format(score_pred_valid)
+    ssdgm_label = 'SSDGM ({:.3f},{:.3f})'.format(acc_pred_valid,score_pred_valid)
     plt.plot(p*pred_valid[inds_sup_valid][0],'r-.',lw=2,label=ssdgm_label)
     # pls_label = 'PLS ({:.3f})'.format(score_pred_valid_pls)
     # plt.plot(p*pred_valid_pls[inds_sup_valid][0],'b-.',lw=2,label=pls_label)
@@ -149,10 +156,11 @@ def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out=
         plt.close()
 
     imshow([endmembers])
+    addon = ' ('+str(num_digits)+')'
     if title is None:
-        plt.title('Generating Endmembers', fontsize=fs)
+        plt.title('Generating Endmembers'+addon, fontsize=fs)
     else:
-        plt.title(title, fontsize=fs)
+        plt.title(title+addon, fontsize=fs)
     plt.savefig(res_out+'/digits_means.png',bbox_inches='tight')
     plt.close()
 
@@ -165,6 +173,8 @@ def make_plots(m,data,colors,names,sample_size=4,ux=0,remove_mean=False,res_out=
     plt.title('Reconstructing Digits - Validation Error', fontsize=fs)
     plt.savefig(res_out+'/recon_valid.png',bbox_inches='tight')
     plt.close()
+
+    return endmembers
 
 def imshow(image_list):
     N = len(image_list)
@@ -184,6 +194,9 @@ def KL(pred,true):
     _pred = np.clip(pred,eps,1.)
     KL = np.sum(_true*(np.log(_true)-np.log(_pred)),axis=1).mean(axis=0)
     return KL
+
+def acc(pred,true):
+    return np.mean(np.argmax(pred,axis=1)==np.argmax(true,axis=1))
 
 def L2(pred,true):
     return np.linalg.norm(pred-true,axis=1).mean(axis=0)

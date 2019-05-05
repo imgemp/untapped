@@ -22,7 +22,7 @@ from plotting.plotting_crism import make_plots
 
 # load data
 remove_mean = True
-xy, ux, waves, names, colors = load_process_data(remove_mean=remove_mean)
+xy, ux, waves, names, colors = load_process_data(remove_mean=remove_mean,yu_corners=True,xu_center=False)
 sup_train_x, sup_train_y, sup_valid_x, sup_valid_y, train_x, train_y = [xyi.astype('float32') for xyi in xy]
 
 # define variable sizes
@@ -37,10 +37,11 @@ data = {'X':sup_train_x,'y':sup_train_y,
         'X__valid':train_x}
 
 # include "untapped" label source
-data['_y'] = train_y
-data['_y_valid'] = train_y
-data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y.shape[0], num_latent_z2)).astype('float32')
-data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y.shape[0], num_latent_z2)).astype('float32')
+z2_samples = 1
+data['_y'] = np.vstack([train_y]*z2_samples)
+data['_y_valid'] = np.vstack([train_y]*z2_samples)
+data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y.shape[0]*z2_samples, num_latent_z2)).astype('float32')
+data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y.shape[0]*z2_samples, num_latent_z2)).astype('float32')
 
 # define priors
 prior_x = None  # uniform distribution over positive intensities

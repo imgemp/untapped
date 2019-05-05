@@ -10,7 +10,7 @@ import lasagne
 from untapped.parmesan.layers import SampleLayer
 from untapped.parmesan.layers import NormalizingSimplexFlowLayer, LogisticFlowLayer, SoftplusFlowLayer
 
-from untapped.M12 import L2, KL
+from untapped.M12 import L1, L2, KL
 from untapped.S2S_DGM import SSDGM
 from untapped.utilities import timeStamp
 
@@ -18,18 +18,18 @@ from datasets.load_libs import load_process_data as load_process_libs
 from datasets.load_raman import load_process_data as load_process_raman
 from datasets.load_raman import get_endmembers
 from plotting.plotting_libs import make_plots as make_plots_libs
-from plotting.plotting_raman import make_plots as make_plots_raman
+from plotting.plotting_raman2 import make_plots as make_plots_raman
 from IPython import embed
 #####################################################################
 # REQUIRES optimizer='fast_compile' in .theanorc file under [global]
 #####################################################################
-
+# THEANO_FLAGS=device=gpu0 python examples/DEMO_fusion.py
 ##############################################################################################################
 ##############################################################################################################
 # train libs model
 ##############################################################################################################
 ##############################################################################################################
-
+embed()
 print('#'*50)
 print('training libs model')
 print('#'*50)
@@ -111,7 +111,7 @@ res_out='examples/results/fusion/libs/'+timeStamp().format("")
 m = SSDGM(num_features,num_output,model_dict=model_dict,
           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
           coeff_x=1e-1,coeff_y=1e-1,coeff_x_dis=1,coeff_y_dis=1e-4,coeff_x_prob=0,coeff_y_prob=0,
-          num_epochs=1500,eval_freq=500,lr=1e-2,eq_samples=1,iw_samples=1,
+          batch_size_X__train=1000,batch_size_X__eval=1000,num_epochs=1500,eval_freq=500,lr=1e-2,eq_samples=1,iw_samples=1,
           res_out=res_out)
 
 # fit the model
@@ -138,12 +138,15 @@ minerals = pandas.read_csv('examples/datasets/fusion/data_4_Ian.csv',index_col=0
 mineral_names = np.array(minerals.index)
 element_names = minerals.columns.values
 mineral_compositions = minerals.as_matrix()
-# composition_sums = mineral_compositions.sum(axis=1)
-# mineral_compositions = mineral_compositions/composition_sums[:,None]
+composition_sums = mineral_compositions.sum(axis=1)
+mineral_compositions = mineral_compositions/composition_sums[:,None]
 
 # load raman data
 xy_r, ux_r, waves_r, names_r, colors_r = load_process_raman(DropLastDim=False)
 sup_train_x_r, sup_train_y_r, sup_valid_x_r, sup_valid_y_r, train_x_r, train_y_r = [xyi.astype('float32') for xyi in xy_r]
+sup_train_x_r *= 1e-4
+sup_valid_x_r *= 1e-4
+train_x_r *= 1e-4
 
 # rectify data differences (5=Chabazite, 7=Clinochlore, 8=Diamond)
 not_in_minerals = [5,7,8]
@@ -169,14 +172,22 @@ sup_train_y_l = np.dot(sup_train_y_r,min_comp_reduced).astype('float32')
 sup_valid_y_l = np.dot(sup_valid_y_r,min_comp_reduced).astype('float32')
 train_y_l = np.dot(train_y_r,min_comp_reduced).astype('float32')
 
+# sup_train_y_l = sup_train_y_l/sup_train_y_l.sum(axis=1,keepdims=True)
+# sup_valid_y_l = sup_valid_y_l/sup_valid_y_l.sum(axis=1,keepdims=True)
+# train_y_l = train_y_l/train_y_l.sum(axis=1,keepdims=True)
+
+print('check:',train_y_l[0].sum())
+
 sup_train_y_l = sup_train_y_l[:,:-1]
 sup_valid_y_l = sup_valid_y_l[:,:-1]
 train_y_l = train_y_l[:,:-1]
 
+# embed()
+
 # # generate LIBS spectra from mineral mixtures
 z2_sup_train = m.getZ2(x=sup_train_x,y=sup_train_y,deterministic=True)
 z2_sup_valid = m.getZ2(x=sup_valid_x,y=sup_valid_y,deterministic=True)
-z2_train = m.getZ2(x=train_x,y=train_y,deterministic=True)
+z2_train = m.getZ2(x=train_x,deterministic=True)
 z2_sup_train_mean = z2_sup_train.mean(axis=0)
 z2_sup_valid_mean = z2_sup_valid.mean(axis=0)
 z2_train_mean = z2_train.mean(axis=0)
@@ -217,7 +228,15 @@ num_latent_z2 = 2
 
 # construct data dictionary
 data = {'X':sup_train_x_lr,'y':sup_train_y_lr,
-        'X_valid':sup_valid_x_lr,'y_valid':sup_valid_y_lr}
+        'X_':train_x_lr,
+        'X_valid':sup_valid_x_lr,'y_valid':sup_valid_y_lr,
+        'X__valid':train_x_lr}
+
+# include "untapped" label source
+data['_y'] = train_y_lr
+data['_y_valid'] = train_y_lr
+data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
+data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
 
 # define priors
 prior_x = None  # uniform distribution over positive intensities
@@ -261,33 +280,40 @@ model_dict['yz2->_z1'] = OrderedDict([('arch',arch)])
 res_out='examples/results/fusion/fusion/'+timeStamp().format("")
 
 # construct the semi^2-supervised deep generative model
-m = SSDGM(num_features,num_output,variational=False,model_dict=model_dict,
+m1 = SSDGM(num_features,num_output,variational=False,model_dict=model_dict,
           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
-          coeff_x=0,coeff_y=0,coeff_x_dis=1,coeff_y_dis=0,coeff_x_prob=0,coeff_y_prob=0,
-          num_epochs=500,eval_freq=100,lr=1e-2,eq_samples=1,iw_samples=1,
+          coeff_x=1e-1,coeff_y=1e-2,coeff_x_dis=1e-2,coeff_y_dis=1e-2,coeff_x_prob=1,coeff_y_prob=1,
+          num_epochs=1000,eval_freq=100,lr=1e-2,eq_samples=1,iw_samples=1,
           res_out=res_out)
+# m1 = SSDGM(num_features,num_output,variational=True,model_dict=model_dict,
+#           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=L1,
+#           coeff_x=1e-2,coeff_y=1e-3,coeff_x_dis=10,coeff_y_dis=1e-4,coeff_x_prob=0,coeff_y_prob=0,
+#           num_epochs=500,eval_freq=100,lr=1e-2,eq_samples=1,iw_samples=1,
+#           res_out=res_out)
 
 # fit the model
-m.fit(verbose=True,debug=False,**data)
+m1.fit(verbose=True,debug=False,**data)
 
-data['X_'] = train_x_lr
-data['X__valid'] = train_x_lr
+data1 = data
+
+# data['X_'] = train_x_lr
+# data['X__valid'] = train_x_lr
 # include "untapped" label source
-data['_y'] = train_y_lr
-data['_y_valid'] = train_y_lr
-data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
-data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
+# data['_y'] = train_y_lr
+# data['_y_valid'] = train_y_lr
+# data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
+# data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
 
-# auto-set title and plot results (saved to res_out)
-title = 'M2'
-if m.coeff_y_dis > 0:
-    if m.coeff_y > 0:
-        title = 'Labels Untapped'
-    else:
-        title = r'Supervised ($\mathbf{y} \rightarrow \mathbf{x}$) M2'
+# # auto-set title and plot results (saved to res_out)
+# title = 'M2'
+# if m.coeff_y_dis > 0:
+#     if m.coeff_y > 0:
+#         title = 'Labels Untapped'
+#     else:
+#         title = r'Supervised ($\mathbf{y} \rightarrow \mathbf{x}$) M2'
 
-make_plots_raman(m,data,colors_lr,names_lr,groundtruth=None,
-                 waves=waves_lr,sample_size=4,res_out=res_out,title=title)
+# make_plots_raman(m,data,colors_lr,names_lr,groundtruth=None,
+#                  waves=waves_lr,sample_size=4,res_out=res_out,title=title)
 
 ##############################################################################################################
 ##############################################################################################################
@@ -306,7 +332,15 @@ num_latent_z2 = 2
 
 # construct data dictionary
 data = {'X':sup_train_x_r,'y':sup_train_y_lr,
-        'X_valid':sup_valid_x_r,'y_valid':sup_valid_y_lr}
+        'X_':train_x_r,
+        'X_valid':sup_valid_x_r,'y_valid':sup_valid_y_lr,
+        'X__valid':train_x_r}
+
+# include "untapped" label source
+data['_y'] = train_y_lr
+data['_y_valid'] = train_y_lr
+data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
+data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
 
 # define priors
 prior_x = None  # uniform distribution over positive intensities
@@ -350,32 +384,41 @@ model_dict['yz2->_z1'] = OrderedDict([('arch',arch)])
 res_out='examples/results/fusion/raman/'+timeStamp().format("")
 
 # construct the semi^2-supervised deep generative model
-m = SSDGM(num_features,num_output,variational=False,model_dict=model_dict,
+m2 = SSDGM(num_features,num_output,variational=False,model_dict=model_dict,
           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
-          coeff_x=0,coeff_y=0,coeff_x_dis=1,coeff_y_dis=0,coeff_x_prob=0,coeff_y_prob=0,
+          coeff_x=1e-1,coeff_y=1e-2,coeff_x_dis=1e-2,coeff_y_dis=1e-2,coeff_x_prob=0,coeff_y_prob=0,
           num_epochs=500,eval_freq=100,lr=1e-2,eq_samples=1,iw_samples=1,
           res_out=res_out)
+# m2 = SSDGM(num_features,num_output,variational=True,model_dict=model_dict,
+#           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=L1,
+#           coeff_x=1e-2,coeff_y=1e-3,coeff_x_dis=10,coeff_y_dis=1e-4,coeff_x_prob=0,coeff_y_prob=0,
+#           num_epochs=500,eval_freq=100,lr=1e-2,eq_samples=1,iw_samples=1,
+#           res_out=res_out)
 
 # fit the model
-m.fit(verbose=True,debug=False,**data)
+m2.fit(verbose=True,debug=False,**data)
 
-data['X_'] = train_x_r
-data['X__valid'] = train_x_r
+data2 = data
+
+# data['X_'] = train_x_r
+# data['X__valid'] = train_x_r
 # include "untapped" label source
-data['_y'] = train_y_lr
-data['_y_valid'] = train_y_lr
-data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
-data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
+# data['_y'] = train_y_lr
+# data['_y_valid'] = train_y_lr
+# data['z2'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
+# data['z2_valid'] = np.random.uniform(low=-1.5, high=1.5, size=(train_y_lr.shape[0], num_latent_z2)).astype('float32')
 
-# auto-set title and plot results (saved to res_out)
-title = 'M2'
-if m.coeff_y_dis > 0:
-    if m.coeff_y > 0:
-        title = 'Labels Untapped'
-    else:
-        title = r'Supervised ($\mathbf{y} \rightarrow \mathbf{x}$) M2'
+# # auto-set title and plot results (saved to res_out)
+# title = 'M2'
+# if m.coeff_y_dis > 0:
+#     if m.coeff_y > 0:
+#         title = 'Labels Untapped'
+#     else:
+#         title = r'Supervised ($\mathbf{y} \rightarrow \mathbf{x}$) M2'
 
-make_plots_raman(m,data,colors_lr,names_lr,groundtruth=None,
-                 waves=waves_r,sample_size=4,res_out=res_out,title=title)
+# make_plots_raman(m,data,colors_lr,names_lr,groundtruth=None,
+#                  waves=waves_r,sample_size=4,res_out=res_out,title=title)
+
+make_plots_raman(m1,m2,data1,data2,names_lr,sample_size=4,res_out=res_out,title=None)
 
 

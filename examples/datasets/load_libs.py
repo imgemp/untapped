@@ -89,7 +89,8 @@ def load_process_data(dataset='examples/datasets/libs/libs.pkl.gz',big=True,tria
         unsup_y = unsup_y[:,:-1]
 
     # trim down unsupervised samples
-    Nx = Ny = 500
+    Nx = 5000  # max is 8999
+    Ny = 500
     x_unsup = unsup_x[np.random.choice(unsup_x.shape[0],size=Nx,replace=False)]
     y_unsup = unsup_y[np.random.choice(unsup_y.shape[0],size=Ny,replace=False)]
 
