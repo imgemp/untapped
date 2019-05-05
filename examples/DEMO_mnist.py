@@ -83,7 +83,7 @@ model_dict['yz2->_z1'] = OrderedDict([('arch',arch)])
 res_out='examples/results/mnist/'+timeStamp().format("")
 
 # construct the semi^2-supervised deep generative model
-m = SSDGM(num_features,num_output,model_dict=model_dict,eq_samples=1,iw_samples=1,
+m = SSDGM(num_features,num_output,variational=True,model_dict=model_dict,eq_samples=1,iw_samples=1,
           prior_x=prior_x,prior_y=prior_y,prior_z2=prior_z2,loss_x=L2,loss_y=KL,
           coeff_x=1e-1,coeff_y=1e-1,coeff_x_dis=1,coeff_y_dis=1e-2,coeff_x_prob=1e-1,coeff_y_prob=0,
           num_epochs=1000,eval_freq=100,lr=1e-2,
@@ -102,4 +102,4 @@ if m.coeff_y_dis > 0:
     else:
         title = r'Supervised ($\mathbf{y} \rightarrow \mathbf{x}$) M2'
 
-make_plots(m,ref_data,colors,names,sample_size=4,res_out=res_out,title=title)
+make_plots(m,data,colors,names,sample_size=4,res_out=res_out,title=title)
